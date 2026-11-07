@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P0/P3 桌面寵物理 · 獨立驗證頁</title>
+<style>
+  :root {
+    --paper: #f7f3ec; --ink: #2c2a27; --muted: #8a8377;
+    --accent: #f19648; --deep: #063e7b; --line: #e4ddd1;
+    --ok: #2e7d4f; --bad: #c23b2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    padding: 26px 22px 40px;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; }
+  h1 { font-family: Georgia, "Noto Serif SC", serif; font-size: 25px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 7px; line-height: 1.75; }
+
+  .desktop {
+    position: relative; margin-top: 16px; height: 480px;
+    background: linear-gradient(#eef3f7 0%, #f7f3ec 78%);
+    border: 1px solid var(--line); overflow: hidden; user-select: none;
+  }
+  .floor {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
+    background: #e4ddd1; border-top: 2px solid #c9bfae;
+    font-size: 11px; color: var(--muted); padding: 4px 10px;
+  }
+  .pet-window {
+    position: absolute; width: 200px; height: 200px; cursor: grab;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+  }
+  .pet-window:active { cursor: grabbing; }
+  /* P3-① desktop toy layer — the page-internal equivalent of the Electron
+     overlay window: toys live in desktop coordinates, the pet is a static
+     proxy body they can bounce off. */
+  .toys-layer {
+    position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+    pointer-events: none;
+  }
+  .toy {
+    position: absolute; font-size: 26px; line-height: 1;
+    width: 28px; height: 28px; text-align: center;
+    will-change: transform, left, top;
+  }
+  .pet {
+    width: 148px; height: 148px; border-radius: 46px;
+    background: #f19648; border: 3px solid #d97f35;
+    position: relative; box-shadow: 0 6px 14px rgba(44,42,39,.18);
+  }
+  .eye {
+    position: absolute; top: 44px; width: 24px; height: 30px;
+    background: #fff; border-radius: 50%;
+  }
+  .eye.l { left: 34px; } .eye.r { right: 34px; }
+  .pupil {
+    position: absolute; left: 7px; top: 10px; width: 11px; height: 13px;
+    background: #2c2a27; border-radius: 50%;
+  }
+  .mouth {
+    position: absolute; left: 50%; top: 92px; width: 44px; height: 20px;
+    border: 3px solid #b4652a; border-top: none;
+    border-radius: 0 0 26px 26px; transform: translateX(-50%);
+  }
+  .pet.sleeping .eye { height: 4px; top: 58px; background: #b4652a; }
+  .pet.sleeping .pupil { display: none; }
+  .pet.sleeping .mouth { height: 8px; border-radius: 0 0 10px 10px; }
+  .zzz {
+    position: absolute; right: -6px; top: -14px; font-size: 20px;
+    color: var(--deep); display: none; font-family: Georgia, serif;
+  }
+  .pet.sleeping .zzz { display: block; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 13px; }
+  button {
+    font: inherit; font-size: 13px; cursor: pointer; padding: 9px 15px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    transition: all .15s ease;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .pill {
+    background: #fff; border: 1px solid var(--line); padding: 7px 13px;
+    font-size: 12px; color: var(--muted);
+  }
+  .pill b { color: var(--ink); font-size: 14px; margin-left: 5px; font-variant-numeric: tabular-nums; }
+  .pill b.flight { color: var(--accent); }
+
+  .panel {
+    margin-top: 16px; background: #fff; border: 1px solid var(--line); padding: 15px 18px;
+  }
+  .panel h2 {
+    font-family: Georgia, "Noto Serif SC", serif;
+    font-size: 16px; font-weight: 600; margin-bottom: 10px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.pass { color: var(--ok); font-weight: 600; }
+  td.fail { color: var(--bad); font-weight: 600; }
+  td.detail { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .foot {
+    margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--line);
+    font-size: 11.5px; color: var(--muted); line-height: 1.9;
+  }
+  .foot code { background: #fff; border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>P0 / P3 桌面寵物理 · 獨立驗證頁</h1>
+  <p class="sub">
+    不依賴 Electron 的獨立測試程序：內嵌 <code>matter.min.js</code> 與 <code>physics_host.mjs</code>（P0 逐字副本），
+    以一個 200×200「寵物窗口」模擬 windows_pet 的運動語義。慢速拖放＝放置（原地漂浮）；快速甩出＝物理 episode（拋物線 → 地板彈跳 → 入睡）。
+    拖拽永遠優先，隨機漂移在物理飛行中自動讓位。
+    <br>
+    <b>P3-① 桌面玩具</b>：按「🍪 丟食物到桌面」会在工作區掉下食物球——玩具活在桌面座標的世界裡，寵物以 static proxy 參與碰撞，
+    所以寵物移動時會把玩具彈開；玩具上限 8、存活 20 秒，最後一顆消失時 overlay 自動關閉。
+  </p>
+
+  <div id="bootBanner" style="display:none; margin-top:12px; padding:10px 14px; background:#fdecea; border:1px solid #c23b2e; color:#c23b2e; font-size:12.5px; font-family:Consolas,monospace; word-break:break-all;"></div>
+  <noscript>
+    <div style="margin-top:12px; padding:10px 14px; background:#fdecea; border:1px solid #c23b2e; color:#c23b2e; font-size:12.5px;">
+      ⚠ JavaScript 已被禁用——這正是「所有動作沒有效果」的最常見原因。
+      請檢查：Firefox 擴充（NoScript / uBlock 嚴格模式）、about:config 的
+      <code>javascript.enabled</code>、或站點權限設定中的「停用 JavaScript」。
+    </div>
+  </noscript>
+
+  <div class="desktop" id="desktop">
+    <div class="pet-window" id="petWindow" style="left:120px; top:80px;">
+      <div class="pet" id="pet">
+        <div class="eye l"><div class="pupil"></div></div>
+        <div class="eye r"><div class="pupil"></div></div>
+        <div class="mouth"></div>
+        <div class="zzz">z Z</div>
+      </div>
+    </div>
+    <div class="floor">工作區地板（可用高度 480px，窗口底部貼地即落地）</div>
+    <div class="toys-layer" id="toysLayer"></div>
+  </div>
+
+  <div class="row">
+    <button id="btnFeed">🍪 丟食物到桌面（P3-①）</button>
+    <button id="btnClearToys">🧹 清除桌面玩具</button>
+    <button id="btnToss">🎾 快速甩出（物理 episode）</button>
+    <button id="btnPlace">🪶 放置到空中（應懸浮）</button>
+    <button id="btnDrift">🎲 隨機漂移（應讓位）</button>
+    <button id="btnReset">↻ 重置場景（F5）</button>
+    <button id="btnRun">✅ 執行自動測試</button>
+  </div>
+
+  <div class="stats">
+    <div class="pill">桌面玩具 <b id="stToys">0</b></div>
+    <div class="pill">玩具上限 <b>8</b></div>
+    <div class="pill">overlay <b id="stOverlay">closed</b></div>
+    <div class="pill">相位 <b id="stPhase">idle</b></div>
+    <div class="pill">ownsMotion <b id="stOwns">false</b></div>
+    <div class="pill">剛體 <b id="stBodies">0</b></div>
+    <div class="pill">碰撞對 <b id="stPairs">0</b></div>
+    <div class="pill">休眠 <b id="stSleep">0</b></div>
+    <div class="pill">窗口寫入 <b id="stMoves">0</b></div>
+  </div>
+
+  <div class="panel">
+    <h2>自動測試結果（與 windows_pet jest 套件同構的斷言）</h2>
+    <table>
+      <thead><tr><th style="width:320px">測試</th><th style="width:70px">結果</th><th>實測 / 預期</th></tr></thead>
+      <tbody id="testBody">
+        <tr><td colspan="3" class="detail">尚未執行——點「執行自動測試」（載入時也會自動跑一次）。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    <b>語義對照</b>　
+    <code>mousedown → grab()</code>（拖拽搶占）　
+    <code>mousemove → win.move(origin + delta)</code>（zero-drift 累積位移）　
+    <code>mouseup → throwFromDrag(samples)</code>（快＝拋出／慢＝放置）　
+    <code>afterUpdate → win.move(body.topLeft)</code>（episode 寫入）　
+    <code>sleepStart → phase=idle</code>（入睡結束 episode）。
+    　·　<code>window.__PET_PHYSICS_DISABLED = true</code> 可全域停用。
+    <br>
+    <b>P3-① 桌面玩具</b>　
+    <code>pet bounds → petProxy</code>（每次移動都拉取，避免 D3 的過期座標）　
+    <code>wall restitution 0.05 / toy 0.15</code>（低回彈，玩具會停下來；D4 的彈床回歸）　
+    <code>petProxy restitution 0.6</code>（玩具撞寵物仍會明顯彈開）。
+  </div>
+</div>
+
+<script>
+/* Boot diagnostics — installed before everything else so any later script
+   failure (including old-browser syntax errors) is visible in-page. */
+window.__BOOT = { stage: 'diag', errors: [] };
+window.addEventListener('error', function (e) {
+  var msg = (e && e.message ? e.message : String(e)) +
+    (e && e.lineno ? ' @ line ' + e.lineno : '');
+  window.__BOOT.errors.push(msg);
+  var b = document.getElementById('bootBanner');
+  if (b) { b.style.display = 'block'; b.textContent = '⚠ 啟動錯誤 [' + window.__BOOT.stage + ']：' + msg; }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  window.__BOOT.errors.push('promise: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+});
+</script>
+<script>
+window.__BOOT.stage = 'matter';
+/*!
+ * matter-js 0.20.0 by @liabru
+ * 
+ * http://brm.io/matter-js/
+ * License: MIT
+ *
+
+ */
+!function(e,t){"object"==typeof exports&&"undefined"!=typeof module?module.exports=t():"function"==typeof define&&define.amd?define("matter",t):(e="undefined"!=typeof globalThis?globalThis:e||self).Matter=t()}(this,function(){"use strict";var e="undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:this,t="undefined"!=typeof globalThis?globalThis:"undefined"!=typeof window?window:void 0!==e?e:"undefined"!=typeof self?self:{};function n(e){return e&&e.__esModule&&Object.prototype.hasOwnProperty.call(e,"default")?e.default:e}var i,o,r,a,s,l,c,u,d,p,f,v,m,y,g,x,h,b,S,w,A,P,B,M,C,_,k,I,T,R,D,E,V,L,F,H,O,q,U,W,j,N,G,z,X,Q,Y,Z,$,J,K,ee,te,ne,ie,oe,re,ae,se,le,ce,ue={exports:{}};function de(){if(o)return i;o=1;var e={};return i=e,function(){e._baseDelta=1e3/60,e._nextId=0,e._seed=0,e._nowStartTime=+new Date,e._warnedOnce={},e._decomp=null,e.extend=function(t,n){var i,o;"boolean"==typeof n?(i=2,o=n):(i=1,o=!0);for(var r=i;r<arguments.length;r++){var a=arguments[r];if(a)for(var s in a)o&&a[s]&&a[s].constructor===Object?t[s]&&t[s].constructor!==Object?t[s]=a[s]:(t[s]=t[s]||{},e.extend(t[s],o,a[s])):t[s]=a[s]}return t},e.clone=function(t,n){return e.extend({},n,t)},e.keys=function(e){if(Object.keys)return Object.keys(e);var t=[];for(var n in e)t.push(n);return t},e.values=function(e){var t=[];if(Object.keys){for(var n=Object.keys(e),i=0;i<n.length;i++)t.push(e[n[i]]);return t}for(var o in e)t.push(e[o]);return t},e.get=function(e,t,n,i){t=t.split(".").slice(n,i);for(var o=0;o<t.length;o+=1)e=e[t[o]];return e},e.set=function(t,n,i,o,r){var a=n.split(".").slice(o,r);return e.get(t,n,0,-1)[a[a.length-1]]=i,i},e.shuffle=function(t){for(var n=t.length-1;n>0;n--){var i=Math.floor(e.random()*(n+1)),o=t[n];t[n]=t[i],t[i]=o}return t},e.choose=function(t){return t[Math.floor(e.random()*t.length)]},e.isElement=function(e){return"undefined"!=typeof HTMLElement?e instanceof HTMLElement:!!(e&&e.nodeType&&e.nodeName)},e.isArray=function(e){return"[object Array]"===Object.prototype.toString.call(e)},e.isFunction=function(e){return"function"==typeof e},e.isPlainObject=function(e){return"object"==typeof e&&e.constructor===Object},e.isString=function(e){return"[object String]"===toString.call(e)},e.clamp=function(e,t,n){return e<t?t:e>n?n:e},e.sign=function(e){return e<0?-1:1},e.now=function(){if("undefined"!=typeof window&&window.performance){if(window.performance.now)return window.performance.now();if(window.performance.webkitNow)return window.performance.webkitNow()}return Date.now?Date.now():new Date-e._nowStartTime},e.random=function(e,t){return t=void 0!==t?t:1,(e=void 0!==e?e:0)+n()*(t-e)};var n=function(){return e._seed=(9301*e._seed+49297)%233280,e._seed/233280};e.colorToNumber=function(e){return 3==(e=e.replace("#","")).length&&(e=e.charAt(0)+e.charAt(0)+e.charAt(1)+e.charAt(1)+e.charAt(2)+e.charAt(2)),parseInt(e,16)},e.logLevel=1,e.log=function(){console&&e.logLevel>0&&e.logLevel<=3&&console.log.apply(console,["matter-js:"].concat(Array.prototype.slice.call(arguments)))},e.info=function(){console&&e.logLevel>0&&e.logLevel<=2&&console.info.apply(console,["matter-js:"].concat(Array.prototype.slice.call(arguments)))},e.warn=function(){console&&e.logLevel>0&&e.logLevel<=3&&console.warn.apply(console,["matter-js:"].concat(Array.prototype.slice.call(arguments)))},e.warnOnce=function(){var t=Array.prototype.slice.call(arguments).join(" ");e._warnedOnce[t]||(e.warn(t),e._warnedOnce[t]=!0)},e.deprecated=function(t,n,i){t[n]=e.chain(function(){e.warnOnce("🔅 deprecated 🔅",i)},t[n])},e.nextId=function(){return e._nextId++},e.indexOf=function(e,t){if(e.indexOf)return e.indexOf(t);for(var n=0;n<e.length;n++)if(e[n]===t)return n;return-1},e.map=function(e,t){if(e.map)return e.map(t);for(var n=[],i=0;i<e.length;i+=1)n.push(t(e[i]));return n},e.topologicalSort=function(t){var n=[],i=[],o=[];for(var r in t)i[r]||o[r]||e._topologicalSort(r,i,o,t,n);return n},e._topologicalSort=function(t,n,i,o,r){var a=o[t]||[];i[t]=!0;for(var s=0;s<a.length;s+=1){var l=a[s];i[l]||(n[l]||e._topologicalSort(l,n,i,o,r))}i[t]=!1,n[t]=!0,r.push(t)},e.chain=function(){for(var e=[],t=0;t<arguments.length;t+=1){var n=arguments[t];n._chained?e.push.apply(e,n._chained):e.push(n)}var i=function(){for(var t,n=new Array(arguments.length),i=0,o=arguments.length;i<o;i++)n[i]=arguments[i];for(i=0;i<e.length;i+=1){var r=e[i].apply(t,n);void 0!==r&&(t=r)}return t};return i._chained=e,i},e.chainPathBefore=function(t,n,i){return e.set(t,n,e.chain(i,e.get(t,n)))},e.chainPathAfter=function(t,n,i){return e.set(t,n,e.chain(e.get(t,n),i))},e.setDecomp=function(t){e._decomp=t},e.getDecomp=function(){var n=e._decomp;try{n||"undefined"==typeof window||(n=window.decomp),n||void 0===t||(n=t.decomp)}catch(e){n=null}return n}}(),i}function pe(){if(a)return r;a=1;var e={};r=e;var t=de();return e._registry={},e.register=function(n){if(e.isPlugin(n)||t.warn("Plugin.register:",e.toString(n),"does not implement all required fields."),n.name in e._registry){var i=e._registry[n.name],o=e.versionParse(n.version).number,r=e.versionParse(i.version).number;o>r?(t.warn("Plugin.register:",e.toString(i),"was upgraded to",e.toString(n)),e._registry[n.name]=n):o<r?t.warn("Plugin.register:",e.toString(i),"can not be downgraded to",e.toString(n)):n!==i&&t.warn("Plugin.register:",e.toString(n),"is already registered to different plugin object")}else e._registry[n.name]=n;return n},e.resolve=function(t){return e._registry[e.dependencyParse(t).name]},e.toString=function(e){return"string"==typeof e?e:(e.name||"anonymous")+"@"+(e.version||e.range||"0.0.0")},e.isPlugin=function(e){return e&&e.name&&e.version&&e.install},e.isUsed=function(e,t){return e.used.indexOf(t)>-1},e.isFor=function(t,n){var i=t.for&&e.dependencyParse(t.for);return!t.for||n.name===i.name&&e.versionSatisfies(n.version,i.range)},e.use=function(n,i){if(n.uses=(n.uses||[]).concat(i||[]),0!==n.uses.length){for(var o=e.dependencies(n),r=t.topologicalSort(o),a=[],s=0;s<r.length;s+=1)if(r[s]!==n.name){var l=e.resolve(r[s]);l?e.isUsed(n,l.name)||(e.isFor(l,n)||(t.warn("Plugin.use:",e.toString(l),"is for",l.for,"but installed on",e.toString(n)+"."),l._warned=!0),l.install?l.install(n):(t.warn("Plugin.use:",e.toString(l),"does not specify an install function."),l._warned=!0),l._warned?(a.push("🔶 "+e.toString(l)),delete l._warned):a.push("✅ "+e.toString(l)),n.used.push(l.name)):a.push("❌ "+r[s])}a.length>0&&t.info(a.join("  "))}else t.warn("Plugin.use:",e.toString(n),"does not specify any dependencies to install.")},e.dependencies=function(n,i){var o=e.dependencyParse(n),r=o.name;if(!(r in(i=i||{}))){n=e.resolve(n)||n,i[r]=t.map(n.uses||[],function(i){e.isPlugin(i)&&e.register(i);var r=e.dependencyParse(i),a=e.resolve(i);return a&&!e.versionSatisfies(a.version,r.range)?(t.warn("Plugin.dependencies:",e.toString(a),"does not satisfy",e.toString(r),"used by",e.toString(o)+"."),a._warned=!0,n._warned=!0):a||(t.warn("Plugin.dependencies:",e.toString(i),"used by",e.toString(o),"could not be resolved."),n._warned=!0),r.name});for(var a=0;a<i[r].length;a+=1)e.dependencies(i[r][a],i);return i}},e.dependencyParse=function(e){return t.isString(e)?(/^[\w-]+(@(\*|[\^~]?\d+\.\d+\.\d+(-[0-9A-Za-z-+]+)?))?$/.test(e)||t.warn("Plugin.dependencyParse:",e,"is not a valid dependency string."),{name:e.split("@")[0],range:e.split("@")[1]||"*"}):{name:e.name,range:e.range||e.version}},e.versionParse=function(e){var n=/^(\*)|(\^|~|>=|>)?\s*((\d+)\.(\d+)\.(\d+))(-[0-9A-Za-z-+]+)?$/;n.test(e)||t.warn("Plugin.versionParse:",e,"is not a valid version or range.");var i=n.exec(e),o=Number(i[4]),r=Number(i[5]),a=Number(i[6]);return{isRange:Boolean(i[1]||i[2]),version:i[3],range:e,operator:i[1]||i[2]||"",major:o,minor:r,patch:a,parts:[o,r,a],prerelease:i[7],number:1e8*o+1e4*r+a}},e.versionSatisfies=function(t,n){n=n||"*";var i=e.versionParse(n),o=e.versionParse(t);if(i.isRange){if("*"===i.operator||"*"===t)return!0;if(">"===i.operator)return o.number>i.number;if(">="===i.operator)return o.number>=i.number;if("~"===i.operator)return o.major===i.major&&o.minor===i.minor&&o.patch>=i.patch;if("^"===i.operator)return i.major>0?o.major===i.major&&o.number>=i.number:i.minor>0?o.minor===i.minor&&o.patch>=i.patch:o.patch===i.patch}return t===n||"*"===t},r}function fe(){if(u)return c;u=1;var e={};return c=e,e.create=function(e,t){return{x:e||0,y:t||0}},e.clone=function(e){return{x:e.x,y:e.y}},e.magnitude=function(e){return Math.sqrt(e.x*e.x+e.y*e.y)},e.magnitudeSquared=function(e){return e.x*e.x+e.y*e.y},e.rotate=function(e,t,n){var i=Math.cos(t),o=Math.sin(t);n||(n={});var r=e.x*i-e.y*o;return n.y=e.x*o+e.y*i,n.x=r,n},e.rotateAbout=function(e,t,n,i){var o=Math.cos(t),r=Math.sin(t);i||(i={});var a=n.x+((e.x-n.x)*o-(e.y-n.y)*r);return i.y=n.y+((e.x-n.x)*r+(e.y-n.y)*o),i.x=a,i},e.normalise=function(t){var n=e.magnitude(t);return 0===n?{x:0,y:0}:{x:t.x/n,y:t.y/n}},e.dot=function(e,t){return e.x*t.x+e.y*t.y},e.cross=function(e,t){return e.x*t.y-e.y*t.x},e.cross3=function(e,t,n){return(t.x-e.x)*(n.y-e.y)-(t.y-e.y)*(n.x-e.x)},e.add=function(e,t,n){return n||(n={}),n.x=e.x+t.x,n.y=e.y+t.y,n},e.sub=function(e,t,n){return n||(n={}),n.x=e.x-t.x,n.y=e.y-t.y,n},e.mult=function(e,t){return{x:e.x*t,y:e.y*t}},e.div=function(e,t){return{x:e.x/t,y:e.y/t}},e.perp=function(e,t){return{x:(t=!0===t?-1:1)*-e.y,y:t*e.x}},e.neg=function(e){return{x:-e.x,y:-e.y}},e.angle=function(e,t){return Math.atan2(t.y-e.y,t.x-e.x)},e._temp=[e.create(),e.create(),e.create(),e.create(),e.create(),e.create()],c}function ve(){if(p)return d;p=1;var e={};d=e;var t=fe(),n=de();return e.fromVertices=function(e){for(var i={},o=0;o<e.length;o++){var r=(o+1)%e.length,a=t.normalise({x:e[r].y-e[o].y,y:e[o].x-e[r].x}),s=0===a.y?1/0:a.x/a.y;i[s=s.toFixed(3).toString()]=a}return n.values(i)},e.rotate=function(e,t){if(0!==t)for(var n=Math.cos(t),i=Math.sin(t),o=0;o<e.length;o++){var r,a=e[o];r=a.x*n-a.y*i,a.y=a.x*i+a.y*n,a.x=r}},d}function me(){if(v)return f;v=1;var e={};f=e;var t=fe(),n=de();return e.create=function(e,t){for(var n=[],i=0;i<e.length;i++){var o=e[i],r={x:o.x,y:o.y,index:i,body:t,isInternal:!1};n.push(r)}return n},e.fromPath=function(t,n){var i=[];return t.replace(/L?\s*([-\d.e]+)[\s,]*([-\d.e]+)*/gi,function(e,t,n){i.push({x:parseFloat(t),y:parseFloat(n)})}),e.create(i,n)},e.centre=function(n){if(0===n.length)return{x:0,y:0};var i,o,r,a=e.area(n,!0),s={x:0,y:0};if(0===a)return e.mean(n);for(var l=0;l<n.length;l++)r=(l+1)%n.length,i=t.cross(n[l],n[r]),o=t.mult(t.add(n[l],n[r]),i),s=t.add(s,o);return t.div(s,6*a)},e.mean=function(e){for(var n={x:0,y:0},i=0;i<e.length;i++)n.x+=e[i].x,n.y+=e[i].y;return t.div(n,e.length)},e.area=function(e,t){for(var n=0,i=e.length-1,o=0;o<e.length;o++)n+=(e[i].x-e[o].x)*(e[i].y+e[o].y),i=o;return t?n/2:Math.abs(n)/2},e.inertia=function(e,n){for(var i,o,r=0,a=0,s=e,l=0;l<s.length;l++)o=(l+1)%s.length,r+=(i=Math.abs(t.cross(s[o],s[l])))*(t.dot(s[o],s[o])+t.dot(s[o],s[l])+t.dot(s[l],s[l])),a+=i;return n/6*(r/a)},e.translate=function(e,t,n){n=void 0!==n?n:1;var i,o=e.length,r=t.x*n,a=t.y*n;for(i=0;i<o;i++)e[i].x+=r,e[i].y+=a;return e},e.rotate=function(e,t,n){if(0!==t){var i,o,r,a,s=Math.cos(t),l=Math.sin(t),c=n.x,u=n.y,d=e.length;for(a=0;a<d;a++)o=(i=e[a]).x-c,r=i.y-u,i.x=c+(o*s-r*l),i.y=u+(o*l+r*s);return e}},e.contains=function(e,t){for(var n,i=t.x,o=t.y,r=e.length,a=e[r-1],s=0;s<r;s++){if(n=e[s],(i-a.x)*(n.y-a.y)+(o-a.y)*(a.x-n.x)>0)return!1;a=n}return!0},e.scale=function(n,i,o,r){if(1===i&&1===o)return n;var a,s;r=r||e.centre(n);for(var l=0;l<n.length;l++)a=n[l],s=t.sub(a,r),n[l].x=r.x+s.x*i,n[l].y=r.y+s.y*o;return n},e.chamfer=function(e,i,o,r,a){i="number"==typeof i?[i]:i||[8],o=void 0!==o?o:-1,r=r||2,a=a||14;for(var s=[],l=0;l<e.length;l++){var c=e[l-1>=0?l-1:e.length-1],u=e[l],d=e[(l+1)%e.length],p=i[l<i.length?l:i.length-1];if(0!==p){var f=t.normalise({x:u.y-c.y,y:c.x-u.x}),v=t.normalise({x:d.y-u.y,y:u.x-d.x}),m=Math.sqrt(2*Math.pow(p,2)),y=t.mult(n.clone(f),p),g=t.normalise(t.mult(t.add(f,v),.5)),x=t.sub(u,t.mult(g,m)),h=o;-1===o&&(h=1.75*Math.pow(p,.32)),(h=n.clamp(h,r,a))%2==1&&(h+=1);for(var b=Math.acos(t.dot(f,v))/h,S=0;S<h;S++)s.push(t.add(t.rotate(y,b*S),x))}else s.push(u)}return s},e.clockwiseSort=function(n){var i=e.mean(n);return n.sort(function(e,n){return t.angle(i,e)-t.angle(i,n)}),n},e.isConvex=function(e){var t,n,i,o,r=0,a=e.length;if(a<3)return null;for(t=0;t<a;t++)if(i=(t+2)%a,o=(e[n=(t+1)%a].x-e[t].x)*(e[i].y-e[n].y),(o-=(e[n].y-e[t].y)*(e[i].x-e[n].x))<0?r|=1:o>0&&(r|=2),3===r)return!1;return 0!==r||null},e.hull=function(e){var n,i,o=[],r=[];for((e=e.slice(0)).sort(function(e,t){var n=e.x-t.x;return 0!==n?n:e.y-t.y}),i=0;i<e.length;i+=1){for(n=e[i];r.length>=2&&t.cross3(r[r.length-2],r[r.length-1],n)<=0;)r.pop();r.push(n)}for(i=e.length-1;i>=0;i-=1){for(n=e[i];o.length>=2&&t.cross3(o[o.length-2],o[o.length-1],n)<=0;)o.pop();o.push(n)}return o.pop(),r.pop(),o.concat(r)},f}function ye(){if(y)return m;y=1;var e={};m=e;var t=de();return e.on=function(e,t,n){for(var i,o=t.split(" "),r=0;r<o.length;r++)i=o[r],e.events=e.events||{},e.events[i]=e.events[i]||[],e.events[i].push(n);return n},e.off=function(e,n,i){if(n){"function"==typeof n&&(i=n,n=t.keys(e.events).join(" "));for(var o=n.split(" "),r=0;r<o.length;r++){var a=e.events[o[r]],s=[];if(i&&a)for(var l=0;l<a.length;l++)a[l]!==i&&s.push(a[l]);e.events[o[r]]=s}}else e.events={}},e.trigger=function(e,n,i){var o,r,a,s,l=e.events;if(l&&t.keys(l).length>0){i||(i={}),o=n.split(" ");for(var c=0;c<o.length;c++)if(a=l[r=o[c]]){(s=t.clone(i,!1)).name=r,s.source=e;for(var u=0;u<a.length;u++)a[u].apply(e,[s])}}},m}function ge(){if(x)return g;x=1;var e={};g=e;var t=he(),n=ye(),i=de();return e._motionWakeThreshold=.18,e._motionSleepThreshold=.08,e._minBias=.9,e.update=function(n,o){for(var r=o/i._baseDelta,a=e._motionSleepThreshold,s=0;s<n.length;s++){var l=n[s],c=t.getSpeed(l),u=t.getAngularSpeed(l),d=c*c+u*u;if(0===l.force.x&&0===l.force.y){var p=Math.min(l.motion,d),f=Math.max(l.motion,d);l.motion=e._minBias*p+(1-e._minBias)*f,l.sleepThreshold>0&&l.motion<a?(l.sleepCounter+=1,l.sleepCounter>=l.sleepThreshold/r&&e.set(l,!0)):l.sleepCounter>0&&(l.sleepCounter-=1)}else e.set(l,!1)}},e.afterCollisions=function(t){for(var n=e._motionSleepThreshold,i=0;i<t.length;i++){var o=t[i];if(o.isActive){var r=o.collision,a=r.bodyA.parent,s=r.bodyB.parent;if(!(a.isSleeping&&s.isSleeping||a.isStatic||s.isStatic)&&(a.isSleeping||s.isSleeping)){var l=a.isSleeping&&!a.isStatic?a:s,c=l===a?s:a;!l.isStatic&&c.motion>n&&e.set(l,!1)}}}},e.set=function(e,t){var i=e.isSleeping;t?(e.isSleeping=!0,e.sleepCounter=e.sleepThreshold,e.positionImpulse.x=0,e.positionImpulse.y=0,e.positionPrev.x=e.position.x,e.positionPrev.y=e.position.y,e.anglePrev=e.angle,e.speed=0,e.angularSpeed=0,e.motion=0,i||n.trigger(e,"sleepStart")):(e.isSleeping=!1,e.sleepCounter=0,i&&n.trigger(e,"sleepEnd"))},g}function xe(){if(b)return h;b=1;var e={};return h=e,e.create=function(t){var n={min:{x:0,y:0},max:{x:0,y:0}};return t&&e.update(n,t),n},e.update=function(e,t,n){e.min.x=1/0,e.max.x=-1/0,e.min.y=1/0,e.max.y=-1/0;for(var i=0;i<t.length;i++){var o=t[i];o.x>e.max.x&&(e.max.x=o.x),o.x<e.min.x&&(e.min.x=o.x),o.y>e.max.y&&(e.max.y=o.y),o.y<e.min.y&&(e.min.y=o.y)}n&&(n.x>0?e.max.x+=n.x:e.min.x+=n.x,n.y>0?e.max.y+=n.y:e.min.y+=n.y)},e.contains=function(e,t){return t.x>=e.min.x&&t.x<=e.max.x&&t.y>=e.min.y&&t.y<=e.max.y},e.overlaps=function(e,t){return e.min.x<=t.max.x&&e.max.x>=t.min.x&&e.max.y>=t.min.y&&e.min.y<=t.max.y},e.translate=function(e,t){e.min.x+=t.x,e.max.x+=t.x,e.min.y+=t.y,e.max.y+=t.y},e.shift=function(e,t){var n=e.max.x-e.min.x,i=e.max.y-e.min.y;e.min.x=t.x,e.max.x=t.x+n,e.min.y=t.y,e.max.y=t.y+i},h}function he(){if(w)return S;w=1;var e={};S=e;var t=me(),n=fe(),i=ge(),o=de(),r=xe(),a=ve();return function(){e._timeCorrection=!0,e._inertiaScale=4,e._nextCollidingGroupId=1,e._nextNonCollidingGroupId=-1,e._nextCategory=1,e._baseDelta=1e3/60,e.create=function(e){var n={id:o.nextId(),type:"body",label:"Body",parts:[],plugin:{},angle:0,vertices:t.fromPath("L 0 0 L 40 0 L 40 40 L 0 40"),position:{x:0,y:0},force:{x:0,y:0},torque:0,positionImpulse:{x:0,y:0},constraintImpulse:{x:0,y:0,angle:0},totalContacts:0,speed:0,angularSpeed:0,velocity:{x:0,y:0},angularVelocity:0,isSensor:!1,isStatic:!1,isSleeping:!1,motion:0,sleepThreshold:60,density:.001,restitution:0,friction:.1,frictionStatic:.5,frictionAir:.01,collisionFilter:{category:1,mask:4294967295,group:0},slop:.05,timeScale:1,render:{visible:!0,opacity:1,strokeStyle:null,fillStyle:null,lineWidth:null,sprite:{xScale:1,yScale:1,xOffset:0,yOffset:0}},events:null,bounds:null,chamfer:null,circleRadius:0,positionPrev:null,anglePrev:0,parent:null,axes:null,area:0,mass:0,inertia:0,deltaTime:1e3/60,_original:null},i=o.extend(n,e);return s(i,e),i},e.nextGroup=function(t){return t?e._nextNonCollidingGroupId--:e._nextCollidingGroupId++},e.nextCategory=function(){return e._nextCategory=e._nextCategory<<1,e._nextCategory};var s=function(i,s){s=s||{},e.set(i,{bounds:i.bounds||r.create(i.vertices),positionPrev:i.positionPrev||n.clone(i.position),anglePrev:i.anglePrev||i.angle,vertices:i.vertices,parts:i.parts||[i],isStatic:i.isStatic,isSleeping:i.isSleeping,parent:i.parent||i}),t.rotate(i.vertices,i.angle,i.position),a.rotate(i.axes,i.angle),r.update(i.bounds,i.vertices,i.velocity),e.set(i,{axes:s.axes||i.axes,area:s.area||i.area,mass:s.mass||i.mass,inertia:s.inertia||i.inertia});var l=i.isStatic?"#14151f":o.choose(["#f19648","#f5d259","#f55a3c","#063e7b","#ececd1"]),c=i.isStatic?"#555":"#ccc",u=i.isStatic&&null===i.render.fillStyle?1:0;i.render.fillStyle=i.render.fillStyle||l,i.render.strokeStyle=i.render.strokeStyle||c,i.render.lineWidth=i.render.lineWidth||u,i.render.sprite.xOffset+=-(i.bounds.min.x-i.position.x)/(i.bounds.max.x-i.bounds.min.x),i.render.sprite.yOffset+=-(i.bounds.min.y-i.position.y)/(i.bounds.max.y-i.bounds.min.y)};e.set=function(t,n,o){var r;for(r in"string"==typeof n&&(r=n,(n={})[r]=o),n)if(Object.prototype.hasOwnProperty.call(n,r))switch(o=n[r],r){case"isStatic":e.setStatic(t,o);break;case"isSleeping":i.set(t,o);break;case"mass":e.setMass(t,o);break;case"density":e.setDensity(t,o);break;case"inertia":e.setInertia(t,o);break;case"vertices":e.setVertices(t,o);break;case"position":e.setPosition(t,o);break;case"angle":e.setAngle(t,o);break;case"velocity":e.setVelocity(t,o);break;case"angularVelocity":e.setAngularVelocity(t,o);break;case"speed":e.setSpeed(t,o);break;case"angularSpeed":e.setAngularSpeed(t,o);break;case"parts":e.setParts(t,o);break;case"centre":e.setCentre(t,o);break;default:t[r]=o}},e.setStatic=function(e,t){for(var n=0;n<e.parts.length;n++){var i=e.parts[n];t?(i.isStatic||(i._original={restitution:i.restitution,friction:i.friction,mass:i.mass,inertia:i.inertia,density:i.density,inverseMass:i.inverseMass,inverseInertia:i.inverseInertia}),i.restitution=0,i.friction=1,i.mass=i.inertia=i.density=1/0,i.inverseMass=i.inverseInertia=0,i.positionPrev.x=i.position.x,i.positionPrev.y=i.position.y,i.anglePrev=i.angle,i.angularVelocity=0,i.speed=0,i.angularSpeed=0,i.motion=0):i._original&&(i.restitution=i._original.restitution,i.friction=i._original.friction,i.mass=i._original.mass,i.inertia=i._original.inertia,i.density=i._original.density,i.inverseMass=i._original.inverseMass,i.inverseInertia=i._original.inverseInertia,i._original=null),i.isStatic=t}},e.setMass=function(e,t){var n=e.inertia/(e.mass/6);e.inertia=n*(t/6),e.inverseInertia=1/e.inertia,e.mass=t,e.inverseMass=1/e.mass,e.density=e.mass/e.area},e.setDensity=function(t,n){e.setMass(t,n*t.area),t.density=n},e.setInertia=function(e,t){e.inertia=t,e.inverseInertia=1/e.inertia},e.setVertices=function(n,i){i[0].body===n?n.vertices=i:n.vertices=t.create(i,n),n.axes=a.fromVertices(n.vertices),n.area=t.area(n.vertices),e.setMass(n,n.density*n.area);var o=t.centre(n.vertices);t.translate(n.vertices,o,-1),e.setInertia(n,e._inertiaScale*t.inertia(n.vertices,n.mass)),t.translate(n.vertices,n.position),r.update(n.bounds,n.vertices,n.velocity)},e.setParts=function(n,i,o){var r;for(i=i.slice(0),n.parts.length=0,n.parts.push(n),n.parent=n,r=0;r<i.length;r++){var a=i[r];a!==n&&(a.parent=n,n.parts.push(a))}if(1!==n.parts.length){if(o=void 0===o||o){var s=[];for(r=0;r<i.length;r++)s=s.concat(i[r].vertices);t.clockwiseSort(s);var l=t.hull(s),c=t.centre(l);e.setVertices(n,l),t.translate(n.vertices,c)}var u=e._totalProperties(n);n.area=u.area,n.parent=n,n.position.x=u.centre.x,n.position.y=u.centre.y,n.positionPrev.x=u.centre.x,n.positionPrev.y=u.centre.y,e.setMass(n,u.mass),e.setInertia(n,u.inertia),e.setPosition(n,u.centre)}},e.setCentre=function(e,t,n){n?(e.positionPrev.x+=t.x,e.positionPrev.y+=t.y,e.position.x+=t.x,e.position.y+=t.y):(e.positionPrev.x=t.x-(e.position.x-e.positionPrev.x),e.positionPrev.y=t.y-(e.position.y-e.positionPrev.y),e.position.x=t.x,e.position.y=t.y)},e.setPosition=function(e,i,o){var a=n.sub(i,e.position);o?(e.positionPrev.x=e.position.x,e.positionPrev.y=e.position.y,e.velocity.x=a.x,e.velocity.y=a.y,e.speed=n.magnitude(a)):(e.positionPrev.x+=a.x,e.positionPrev.y+=a.y);for(var s=0;s<e.parts.length;s++){var l=e.parts[s];l.position.x+=a.x,l.position.y+=a.y,t.translate(l.vertices,a),r.update(l.bounds,l.vertices,e.velocity)}},e.setAngle=function(e,i,o){var s=i-e.angle;o?(e.anglePrev=e.angle,e.angularVelocity=s,e.angularSpeed=Math.abs(s)):e.anglePrev+=s;for(var l=0;l<e.parts.length;l++){var c=e.parts[l];c.angle+=s,t.rotate(c.vertices,s,e.position),a.rotate(c.axes,s),r.update(c.bounds,c.vertices,e.velocity),l>0&&n.rotateAbout(c.position,s,e.position,c.position)}},e.setVelocity=function(t,i){var o=t.deltaTime/e._baseDelta;t.positionPrev.x=t.position.x-i.x*o,t.positionPrev.y=t.position.y-i.y*o,t.velocity.x=(t.position.x-t.positionPrev.x)/o,t.velocity.y=(t.position.y-t.positionPrev.y)/o,t.speed=n.magnitude(t.velocity)},e.getVelocity=function(t){var n=e._baseDelta/t.deltaTime;return{x:(t.position.x-t.positionPrev.x)*n,y:(t.position.y-t.positionPrev.y)*n}},e.getSpeed=function(t){return n.magnitude(e.getVelocity(t))},e.setSpeed=function(t,i){e.setVelocity(t,n.mult(n.normalise(e.getVelocity(t)),i))},e.setAngularVelocity=function(t,n){var i=t.deltaTime/e._baseDelta;t.anglePrev=t.angle-n*i,t.angularVelocity=(t.angle-t.anglePrev)/i,t.angularSpeed=Math.abs(t.angularVelocity)},e.getAngularVelocity=function(t){return(t.angle-t.anglePrev)*e._baseDelta/t.deltaTime},e.getAngularSpeed=function(t){return Math.abs(e.getAngularVelocity(t))},e.setAngularSpeed=function(t,n){e.setAngularVelocity(t,o.sign(e.getAngularVelocity(t))*n)},e.translate=function(t,i,o){e.setPosition(t,n.add(t.position,i),o)},e.rotate=function(t,n,i,o){if(i){var r=Math.cos(n),a=Math.sin(n),s=t.position.x-i.x,l=t.position.y-i.y;e.setPosition(t,{x:i.x+(s*r-l*a),y:i.y+(s*a+l*r)},o),e.setAngle(t,t.angle+n,o)}else e.setAngle(t,t.angle+n,o)},e.scale=function(n,i,o,s){var l=0,c=0;s=s||n.position;for(var u=0;u<n.parts.length;u++){var d=n.parts[u];t.scale(d.vertices,i,o,s),d.axes=a.fromVertices(d.vertices),d.area=t.area(d.vertices),e.setMass(d,n.density*d.area),t.translate(d.vertices,{x:-d.position.x,y:-d.position.y}),e.setInertia(d,e._inertiaScale*t.inertia(d.vertices,d.mass)),t.translate(d.vertices,{x:d.position.x,y:d.position.y}),u>0&&(l+=d.area,c+=d.inertia),d.position.x=s.x+(d.position.x-s.x)*i,d.position.y=s.y+(d.position.y-s.y)*o,r.update(d.bounds,d.vertices,n.velocity)}n.parts.length>1&&(n.area=l,n.isStatic||(e.setMass(n,n.density*l),e.setInertia(n,c))),n.circleRadius&&(i===o?n.circleRadius*=i:n.circleRadius=null)},e.update=function(i,s){if((s=(void 0!==s?s:1e3/60)*i.timeScale)>0){var l=s*s,c=e._timeCorrection?s/(i.deltaTime||s):1,u=1-i.frictionAir*(s/o._baseDelta),d=(i.position.x-i.positionPrev.x)*c,p=(i.position.y-i.positionPrev.y)*c;i.velocity.x=d*u+i.force.x/i.mass*l,i.velocity.y=p*u+i.force.y/i.mass*l,i.positionPrev.x=i.position.x,i.positionPrev.y=i.position.y,i.position.x+=i.velocity.x,i.position.y+=i.velocity.y,i.deltaTime=s,i.angularVelocity=(i.angle-i.anglePrev)*u*c+i.torque/i.inertia*l,i.anglePrev=i.angle,i.angle+=i.angularVelocity;for(var f=0;f<i.parts.length;f++){var v=i.parts[f];t.translate(v.vertices,i.velocity),f>0&&(v.position.x+=i.velocity.x,v.position.y+=i.velocity.y),0!==i.angularVelocity&&(t.rotate(v.vertices,i.angularVelocity,i.position),a.rotate(v.axes,i.angularVelocity),f>0&&n.rotateAbout(v.position,i.angularVelocity,i.position,v.position)),r.update(v.bounds,v.vertices,i.velocity)}}},e.updateVelocities=function(t){var n=e._baseDelta/t.deltaTime,i=t.velocity;i.x=(t.position.x-t.positionPrev.x)*n,i.y=(t.position.y-t.positionPrev.y)*n,t.speed=Math.sqrt(i.x*i.x+i.y*i.y),t.angularVelocity=(t.angle-t.anglePrev)*n,t.angularSpeed=Math.abs(t.angularVelocity)},e.applyForce=function(e,t,n){var i=t.x-e.position.x,o=t.y-e.position.y;e.force.x+=n.x,e.force.y+=n.y,e.torque+=i*n.y-o*n.x},e._totalProperties=function(e){for(var t={mass:0,area:0,inertia:0,centre:{x:0,y:0}},i=1===e.parts.length?0:1;i<e.parts.length;i++){var o=(r=e.parts[i]).mass!==1/0?r.mass:1;t.mass+=o,t.area+=r.area,t.centre=n.add(t.centre,n.mult(r.position,o))}t.centre=n.div(t.centre,t.mass);for(i=1===e.parts.length?0:1;i<e.parts.length;i++){var r=e.parts[i];t.inertia+=r.inertia+r.mass*Math.pow(n.magnitude(n.sub(r.position,t.centre)),2)}return t}}(),S}function be(){if(P)return A;P=1;var e={};A=e;var t=me(),n=de(),i=he(),o=xe(),r=fe();return e.rectangle=function(e,o,r,a,s){s=s||{};var l={label:"Rectangle Body",position:{x:e,y:o},vertices:t.fromPath("L 0 0 L "+r+" 0 L "+r+" "+a+" L 0 "+a)};if(s.chamfer){var c=s.chamfer;l.vertices=t.chamfer(l.vertices,c.radius,c.quality,c.qualityMin,c.qualityMax),delete s.chamfer}return i.create(n.extend({},l,s))},e.trapezoid=function(e,o,r,a,s,l){l=l||{},s>=1&&n.warn("Bodies.trapezoid: slope parameter must be < 1.");var c,u=r*(s*=.5),d=u+(1-2*s)*r,p=d+u;c=s<.5?"L 0 0 L "+u+" "+-a+" L "+d+" "+-a+" L "+p+" 0":"L 0 0 L "+d+" "+-a+" L "+p+" 0";var f={label:"Trapezoid Body",position:{x:e,y:o},vertices:t.fromPath(c)};if(l.chamfer){var v=l.chamfer;f.vertices=t.chamfer(f.vertices,v.radius,v.quality,v.qualityMin,v.qualityMax),delete l.chamfer}return i.create(n.extend({},f,l))},e.circle=function(t,i,o,r,a){r=r||{};var s={label:"Circle Body",circleRadius:o};a=a||25;var l=Math.ceil(Math.max(10,Math.min(a,o)));return l%2==1&&(l+=1),e.polygon(t,i,l,o,n.extend({},s,r))},e.polygon=function(o,r,a,s,l){if(l=l||{},a<3)return e.circle(o,r,s,l);for(var c=2*Math.PI/a,u="",d=.5*c,p=0;p<a;p+=1){var f=d+p*c,v=Math.cos(f)*s,m=Math.sin(f)*s;u+="L "+v.toFixed(3)+" "+m.toFixed(3)+" "}var y={label:"Polygon Body",position:{x:o,y:r},vertices:t.fromPath(u)};if(l.chamfer){var g=l.chamfer;y.vertices=t.chamfer(y.vertices,g.radius,g.quality,g.qualityMin,g.qualityMax),delete l.chamfer}return i.create(n.extend({},y,l))},e.fromVertices=function(e,a,s,l,c,u,d,p){var f,v,m,y,g,x,h,b,S,w,A=n.getDecomp();for(f=Boolean(A&&A.quickDecomp),l=l||{},m=[],c=void 0!==c&&c,u=void 0!==u?u:.01,d=void 0!==d?d:10,p=void 0!==p?p:.01,n.isArray(s[0])||(s=[s]),S=0;S<s.length;S+=1)if(g=s[S],!(y=t.isConvex(g))&&!f&&n.warnOnce("Bodies.fromVertices: Install the 'poly-decomp' library and use Common.setDecomp or provide 'decomp' as a global to decompose concave vertices."),y||!f)g=y?t.clockwiseSort(g):t.hull(g),m.push({position:{x:e,y:a},vertices:g});else{var P=g.map(function(e){return[e.x,e.y]});A.makeCCW(P),!1!==u&&A.removeCollinearPoints(P,u),!1!==p&&A.removeDuplicatePoints&&A.removeDuplicatePoints(P,p);var B=A.quickDecomp(P);for(x=0;x<B.length;x++){var M=B[x].map(function(e){return{x:e[0],y:e[1]}});d>0&&t.area(M)<d||m.push({position:t.centre(M),vertices:M})}}for(x=0;x<m.length;x++)m[x]=i.create(n.extend(m[x],l));if(c)for(x=0;x<m.length;x++){var C=m[x];for(h=x+1;h<m.length;h++){var _=m[h];if(o.overlaps(C.bounds,_.bounds)){var k=C.vertices,I=_.vertices;for(b=0;b<C.vertices.length;b++)for(w=0;w<_.vertices.length;w++){var T=r.magnitudeSquared(r.sub(k[(b+1)%k.length],I[w])),R=r.magnitudeSquared(r.sub(k[b],I[(w+1)%I.length]));T<5&&R<5&&(k[b].isInternal=!0,I[w].isInternal=!0)}}}}return m.length>1?(v=i.create(n.extend({parts:m.slice(0)},l)),i.setPosition(v,{x:e,y:a}),v):m[0]},A}function Se(){if(M)return B;M=1;var e={};return B=e,e.create=function(e){return{vertex:e,normalImpulse:0,tangentImpulse:0}},B}function we(){if(_)return C;_=1;var e={};C=e;var t=Se();return e.create=function(n,i){var o=n.bodyA,r=n.bodyB,a={id:e.id(o,r),bodyA:o,bodyB:r,collision:n,contacts:[t.create(),t.create()],contactCount:0,separation:0,isActive:!0,isSensor:o.isSensor||r.isSensor,timeCreated:i,timeUpdated:i,inverseMass:0,friction:0,frictionStatic:0,restitution:0,slop:0};return e.update(a,n,i),a},e.update=function(e,t,n){var i=t.supports,o=t.supportCount,r=e.contacts,a=t.parentA,s=t.parentB;e.isActive=!0,e.timeUpdated=n,e.collision=t,e.separation=t.depth,e.inverseMass=a.inverseMass+s.inverseMass,e.friction=a.friction<s.friction?a.friction:s.friction,e.frictionStatic=a.frictionStatic>s.frictionStatic?a.frictionStatic:s.frictionStatic,e.restitution=a.restitution>s.restitution?a.restitution:s.restitution,e.slop=a.slop>s.slop?a.slop:s.slop,e.contactCount=o,t.pair=e;var l=i[0],c=r[0],u=i[1],d=r[1];d.vertex!==l&&c.vertex!==u||(r[1]=c,r[0]=c=d,d=r[1]),c.vertex=l,d.vertex=u},e.setActive=function(e,t,n){t?(e.isActive=!0,e.timeUpdated=n):(e.isActive=!1,e.contactCount=0)},e.id=function(e,t){return e.id<t.id?e.id.toString(36)+":"+t.id.toString(36):t.id.toString(36)+":"+e.id.toString(36)},C}function Ae(){if(I)return k;I=1;var e={};k=e;var t,n,i,o=me(),r=we();return t=[],n={overlap:0,axis:null},i={overlap:0,axis:null},e.create=function(e,t){return{pair:null,collided:!1,bodyA:e,bodyB:t,parentA:e.parent,parentB:t.parent,depth:0,normal:{x:0,y:0},tangent:{x:0,y:0},penetration:{x:0,y:0},supports:[null,null],supportCount:0}},e.collides=function(t,a,s){if(e._overlapAxes(n,t.vertices,a.vertices,t.axes),n.overlap<=0)return null;if(e._overlapAxes(i,a.vertices,t.vertices,a.axes),i.overlap<=0)return null;var l,c,u=s&&s.table[r.id(t,a)];u?l=u.collision:((l=e.create(t,a)).collided=!0,l.bodyA=t.id<a.id?t:a,l.bodyB=t.id<a.id?a:t,l.parentA=l.bodyA.parent,l.parentB=l.bodyB.parent),t=l.bodyA,a=l.bodyB,c=n.overlap<i.overlap?n:i;var d=l.normal,p=l.tangent,f=l.penetration,v=l.supports,m=c.overlap,y=c.axis,g=y.x,x=y.y;g*(a.position.x-t.position.x)+x*(a.position.y-t.position.y)>=0&&(g=-g,x=-x),d.x=g,d.y=x,p.x=-x,p.y=g,f.x=g*m,f.y=x*m,l.depth=m;var h=e._findSupports(t,a,d,1),b=0;if(o.contains(t.vertices,h[0])&&(v[b++]=h[0]),o.contains(t.vertices,h[1])&&(v[b++]=h[1]),b<2){var S=e._findSupports(a,t,d,-1);o.contains(a.vertices,S[0])&&(v[b++]=S[0]),b<2&&o.contains(a.vertices,S[1])&&(v[b++]=S[1])}return 0===b&&(v[b++]=h[0]),l.supportCount=b,l},e._overlapAxes=function(e,t,n,i){var o,r,a,s,l,c,u=t.length,d=n.length,p=t[0].x,f=t[0].y,v=n[0].x,m=n[0].y,y=i.length,g=Number.MAX_VALUE,x=0;for(l=0;l<y;l++){var h=i[l],b=h.x,S=h.y,w=p*b+f*S,A=v*b+m*S,P=w,B=A;for(c=1;c<u;c+=1)(s=t[c].x*b+t[c].y*S)>P?P=s:s<w&&(w=s);for(c=1;c<d;c+=1)(s=n[c].x*b+n[c].y*S)>B?B=s:s<A&&(A=s);if((o=(r=P-A)<(a=B-w)?r:a)<g&&(g=o,x=l,o<=0))break}e.axis=i[x],e.overlap=g},e._findSupports=function(e,n,i,o){var r,a,s,l=n.vertices,c=l.length,u=e.position.x,d=e.position.y,p=i.x*o,f=i.y*o,v=l[0],m=v,y=p*(u-m.x)+f*(d-m.y);for(s=1;s<c;s+=1)(a=p*(u-(m=l[s]).x)+f*(d-m.y))<y&&(y=a,v=m);return y=p*(u-(r=l[(c+v.index-1)%c]).x)+f*(d-r.y),p*(u-(m=l[(v.index+1)%c]).x)+f*(d-m.y)<y?(t[0]=v,t[1]=m,t):(t[0]=v,t[1]=r,t)},k}function Pe(){if(R)return T;R=1;var e={};T=e;var t=ye(),n=de(),i=xe(),o=he();return e.create=function(e){return n.extend({id:n.nextId(),type:"composite",parent:null,isModified:!1,bodies:[],constraints:[],composites:[],label:"Composite",plugin:{},cache:{allBodies:null,allConstraints:null,allComposites:null}},e)},e.setModified=function(t,n,i,o){if(t.isModified=n,n&&t.cache&&(t.cache.allBodies=null,t.cache.allConstraints=null,t.cache.allComposites=null),i&&t.parent&&e.setModified(t.parent,n,i,o),o)for(var r=0;r<t.composites.length;r++){var a=t.composites[r];e.setModified(a,n,i,o)}},e.add=function(i,o){var r=[].concat(o);t.trigger(i,"beforeAdd",{object:o});for(var a=0;a<r.length;a++){var s=r[a];switch(s.type){case"body":if(s.parent!==s){n.warn("Composite.add: skipped adding a compound body part (you must add its parent instead)");break}e.addBody(i,s);break;case"constraint":e.addConstraint(i,s);break;case"composite":e.addComposite(i,s);break;case"mouseConstraint":e.addConstraint(i,s.constraint)}}return t.trigger(i,"afterAdd",{object:o}),i},e.remove=function(n,i,o){var r=[].concat(i);t.trigger(n,"beforeRemove",{object:i});for(var a=0;a<r.length;a++){var s=r[a];switch(s.type){case"body":e.removeBody(n,s,o);break;case"constraint":e.removeConstraint(n,s,o);break;case"composite":e.removeComposite(n,s,o);break;case"mouseConstraint":e.removeConstraint(n,s.constraint)}}return t.trigger(n,"afterRemove",{object:i}),n},e.addComposite=function(t,n){return t.composites.push(n),n.parent=t,e.setModified(t,!0,!0,!1),t},e.removeComposite=function(t,i,o){var r=n.indexOf(t.composites,i);if(-1!==r){var a=e.allBodies(i);e.removeCompositeAt(t,r);for(var s=0;s<a.length;s++)a[s].sleepCounter=0}if(o)for(s=0;s<t.composites.length;s++)e.removeComposite(t.composites[s],i,!0);return t},e.removeCompositeAt=function(t,n){return t.composites.splice(n,1),e.setModified(t,!0,!0,!1),t},e.addBody=function(t,n){return t.bodies.push(n),e.setModified(t,!0,!0,!1),t},e.removeBody=function(t,i,o){var r=n.indexOf(t.bodies,i);if(-1!==r&&(e.removeBodyAt(t,r),i.sleepCounter=0),o)for(var a=0;a<t.composites.length;a++)e.removeBody(t.composites[a],i,!0);return t},e.removeBodyAt=function(t,n){return t.bodies.splice(n,1),e.setModified(t,!0,!0,!1),t},e.addConstraint=function(t,n){return t.constraints.push(n),e.setModified(t,!0,!0,!1),t},e.removeConstraint=function(t,i,o){var r=n.indexOf(t.constraints,i);if(-1!==r&&e.removeConstraintAt(t,r),o)for(var a=0;a<t.composites.length;a++)e.removeConstraint(t.composites[a],i,!0);return t},e.removeConstraintAt=function(t,n){return t.constraints.splice(n,1),e.setModified(t,!0,!0,!1),t},e.clear=function(t,n,i){if(i)for(var o=0;o<t.composites.length;o++)e.clear(t.composites[o],n,!0);for(o=0;o<t.bodies.length;o++)n&&t.bodies[o].isStatic||(t.bodies[o].sleepCounter=0);return n?t.bodies=t.bodies.filter(function(e){return e.isStatic}):t.bodies.length=0,t.constraints.length=0,t.composites.length=0,e.setModified(t,!0,!0,!1),t},e.allBodies=function(t){if(t.cache&&t.cache.allBodies)return t.cache.allBodies;for(var n=[].concat(t.bodies),i=0;i<t.composites.length;i++)n=n.concat(e.allBodies(t.composites[i]));return t.cache&&(t.cache.allBodies=n),n},e.allConstraints=function(t){if(t.cache&&t.cache.allConstraints)return t.cache.allConstraints;for(var n=[].concat(t.constraints),i=0;i<t.composites.length;i++)n=n.concat(e.allConstraints(t.composites[i]));return t.cache&&(t.cache.allConstraints=n),n},e.allComposites=function(t){if(t.cache&&t.cache.allComposites)return t.cache.allComposites;for(var n=[].concat(t.composites),i=0;i<t.composites.length;i++)n=n.concat(e.allComposites(t.composites[i]));return t.cache&&(t.cache.allComposites=n),n},e.get=function(t,n,i){var o,r;switch(i){case"body":o=e.allBodies(t);break;case"constraint":o=e.allConstraints(t);break;case"composite":o=e.allComposites(t).concat(t)}return o?0===(r=o.filter(function(e){return e.id.toString()===n.toString()})).length?null:r[0]:null},e.move=function(t,n,i){return e.remove(t,n),e.add(i,n),t},e.rebase=function(t){for(var i=e.allBodies(t).concat(e.allConstraints(t)).concat(e.allComposites(t)),o=0;o<i.length;o++)i[o].id=n.nextId();return t},e.translate=function(t,n,i){for(var r=i?e.allBodies(t):t.bodies,a=0;a<r.length;a++)o.translate(r[a],n);return t},e.rotate=function(t,n,i,r){for(var a=Math.cos(n),s=Math.sin(n),l=r?e.allBodies(t):t.bodies,c=0;c<l.length;c++){var u=l[c],d=u.position.x-i.x,p=u.position.y-i.y;o.setPosition(u,{x:i.x+(d*a-p*s),y:i.y+(d*s+p*a)}),o.rotate(u,n)}return t},e.scale=function(t,n,i,r,a){for(var s=a?e.allBodies(t):t.bodies,l=0;l<s.length;l++){var c=s[l],u=c.position.x-r.x,d=c.position.y-r.y;o.setPosition(c,{x:r.x+u*n,y:r.y+d*i}),o.scale(c,n,i)}return t},e.bounds=function(t){for(var n=e.allBodies(t),o=[],r=0;r<n.length;r+=1){var a=n[r];o.push(a.bounds.min,a.bounds.max)}return i.create(o)},T}function Be(){if(E)return D;E=1;var e={};D=e;var t=me(),n=fe(),i=ge(),o=xe(),r=ve(),a=de();return e._warming=.4,e._torqueDampen=1,e._minLength=1e-6,e.create=function(e){var t=e;t.bodyA&&!t.pointA&&(t.pointA={x:0,y:0}),t.bodyB&&!t.pointB&&(t.pointB={x:0,y:0});var i=t.bodyA?n.add(t.bodyA.position,t.pointA):t.pointA,o=t.bodyB?n.add(t.bodyB.position,t.pointB):t.pointB,r=n.magnitude(n.sub(i,o));t.length=void 0!==t.length?t.length:r,t.id=t.id||a.nextId(),t.label=t.label||"Constraint",t.type="constraint",t.stiffness="number"!=typeof t.stiffness||isNaN(t.stiffness)?t.length>0?1:.7:t.stiffness,t.damping=t.damping||0,t.angularStiffness=t.angularStiffness||0,t.angleA=t.bodyA?t.bodyA.angle:t.angleA,t.angleB=t.bodyB?t.bodyB.angle:t.angleB,t.plugin={};var s={visible:!0,lineWidth:2,strokeStyle:"#ffffff",type:"line",anchors:!0};return 0===t.length&&t.stiffness>.1?(s.type="pin",s.anchors=!1):t.stiffness<.9&&(s.type="spring"),t.render=a.extend(s,t.render),t},e.preSolveAll=function(e){for(var t=0;t<e.length;t+=1){var n=e[t],i=n.constraintImpulse;n.isStatic||0===i.x&&0===i.y&&0===i.angle||(n.position.x+=i.x,n.position.y+=i.y,n.angle+=i.angle)}},e.solveAll=function(t,n){for(var i=a.clamp(n/a._baseDelta,0,1),o=0;o<t.length;o+=1){var r=t[o],s=!r.bodyA||r.bodyA&&r.bodyA.isStatic,l=!r.bodyB||r.bodyB&&r.bodyB.isStatic;(s||l)&&e.solve(t[o],i)}for(o=0;o<t.length;o+=1)s=!(r=t[o]).bodyA||r.bodyA&&r.bodyA.isStatic,l=!r.bodyB||r.bodyB&&r.bodyB.isStatic,s||l||e.solve(t[o],i)},e.solve=function(t,i){var o=t.bodyA,r=t.bodyB,a=t.pointA,s=t.pointB;if(o||r){o&&!o.isStatic&&(n.rotate(a,o.angle-t.angleA,a),t.angleA=o.angle),r&&!r.isStatic&&(n.rotate(s,r.angle-t.angleB,s),t.angleB=r.angle);var l=a,c=s;if(o&&(l=n.add(o.position,a)),r&&(c=n.add(r.position,s)),l&&c){var u=n.sub(l,c),d=n.magnitude(u);d<e._minLength&&(d=e._minLength);var p,f,v,m,y,g=(d-t.length)/d,x=t.stiffness>=1||0===t.length?t.stiffness*i:t.stiffness*i*i,h=t.damping*i,b=n.mult(u,g*x),S=(o?o.inverseMass:0)+(r?r.inverseMass:0),w=S+((o?o.inverseInertia:0)+(r?r.inverseInertia:0));if(h>0){var A=n.create();v=n.div(u,d),y=n.sub(r&&n.sub(r.position,r.positionPrev)||A,o&&n.sub(o.position,o.positionPrev)||A),m=n.dot(v,y)}o&&!o.isStatic&&(f=o.inverseMass/S,o.constraintImpulse.x-=b.x*f,o.constraintImpulse.y-=b.y*f,o.position.x-=b.x*f,o.position.y-=b.y*f,h>0&&(o.positionPrev.x-=h*v.x*m*f,o.positionPrev.y-=h*v.y*m*f),p=n.cross(a,b)/w*e._torqueDampen*o.inverseInertia*(1-t.angularStiffness),o.constraintImpulse.angle-=p,o.angle-=p),r&&!r.isStatic&&(f=r.inverseMass/S,r.constraintImpulse.x+=b.x*f,r.constraintImpulse.y+=b.y*f,r.position.x+=b.x*f,r.position.y+=b.y*f,h>0&&(r.positionPrev.x+=h*v.x*m*f,r.positionPrev.y+=h*v.y*m*f),p=n.cross(s,b)/w*e._torqueDampen*r.inverseInertia*(1-t.angularStiffness),r.constraintImpulse.angle+=p,r.angle+=p)}}},e.postSolveAll=function(a){for(var s=0;s<a.length;s++){var l=a[s],c=l.constraintImpulse;if(!(l.isStatic||0===c.x&&0===c.y&&0===c.angle)){i.set(l,!1);for(var u=0;u<l.parts.length;u++){var d=l.parts[u];t.translate(d.vertices,c),u>0&&(d.position.x+=c.x,d.position.y+=c.y),0!==c.angle&&(t.rotate(d.vertices,c.angle,l.position),r.rotate(d.axes,c.angle),u>0&&n.rotateAbout(d.position,c.angle,l.position,d.position)),o.update(d.bounds,d.vertices,l.velocity)}c.angle*=e._warming,c.x*=e._warming,c.y*=e._warming}}},e.pointAWorld=function(e){return{x:(e.bodyA?e.bodyA.position.x:0)+(e.pointA?e.pointA.x:0),y:(e.bodyA?e.bodyA.position.y:0)+(e.pointA?e.pointA.y:0)}},e.pointBWorld=function(e){return{x:(e.bodyB?e.bodyB.position.x:0)+(e.pointB?e.pointB.x:0),y:(e.bodyB?e.bodyB.position.y:0)+(e.pointB?e.pointB.y:0)}},e.currentLength=function(e){var t=(e.bodyA?e.bodyA.position.x:0)+(e.pointA?e.pointA.x:0),n=(e.bodyA?e.bodyA.position.y:0)+(e.pointA?e.pointA.y:0),i=t-((e.bodyB?e.bodyB.position.x:0)+(e.pointB?e.pointB.x:0)),o=n-((e.bodyB?e.bodyB.position.y:0)+(e.pointB?e.pointB.y:0));return Math.sqrt(i*i+o*o)},D}function Me(){if(H)return F;H=1;var e={};F=e;var t=de(),n=Ae();return e.create=function(e){return t.extend({bodies:[],collisions:[],pairs:null},e)},e.setBodies=function(e,t){e.bodies=t.slice(0)},e.clear=function(e){e.bodies=[],e.collisions=[]},e.collisions=function(t){var i,o,r=t.pairs,a=t.bodies,s=a.length,l=e.canCollide,c=n.collides,u=t.collisions,d=0;for(a.sort(e._compareBoundsX),i=0;i<s;i++){var p=a[i],f=p.bounds.max.x,v=p.bounds.max.y,m=p.bounds.min.y,y=p.isStatic||p.isSleeping,g=p.parts.length,x=1===g;for(o=i+1;o<s;o++){var h=a[o];if((_=h.bounds).min.x>f)break;if(!(v<_.min.y||m>_.max.y)&&(!y||!h.isStatic&&!h.isSleeping)&&l(p.collisionFilter,h.collisionFilter)){var b=h.parts.length;if(x&&1===b)(M=c(p,h,r))&&(u[d++]=M);else for(var S=b>1?1:0,w=g>1?1:0;w<g;w++)for(var A=p.parts[w],P=A.bounds,B=S;B<b;B++){var M,C=h.parts[B],_=C.bounds;P.min.x>_.max.x||P.max.x<_.min.x||P.max.y<_.min.y||P.min.y>_.max.y||(M=c(A,C,r))&&(u[d++]=M)}}}}return u.length!==d&&(u.length=d),u},e.canCollide=function(e,t){return e.group===t.group&&0!==e.group?e.group>0:0!==(e.mask&t.category)&&0!==(t.mask&e.category)},e._compareBoundsX=function(e,t){return e.bounds.min.x-t.bounds.min.x},F}function Ce(){if(q)return O;q=1;var e={};O=e;var t=me(),n=de(),i=xe();return e._restingThresh=2,e._restingThreshTangent=Math.sqrt(6),e._positionDampen=.9,e._positionWarming=.8,e._frictionNormalMultiplier=5,e._frictionMaxStatic=Number.MAX_VALUE,e.preSolvePosition=function(e){var t,n,i,o=e.length;for(t=0;t<o;t++)(n=e[t]).isActive&&(i=n.contactCount,n.collision.parentA.totalContacts+=i,n.collision.parentB.totalContacts+=i)},e.solvePosition=function(t,i,o){var r,a,s,l,c,u,d,p,f=e._positionDampen*(o||1),v=n.clamp(i/n._baseDelta,0,1),m=t.length;for(r=0;r<m;r++)(a=t[r]).isActive&&!a.isSensor&&(l=(s=a.collision).parentA,c=s.parentB,u=s.normal,a.separation=s.depth+u.x*(c.positionImpulse.x-l.positionImpulse.x)+u.y*(c.positionImpulse.y-l.positionImpulse.y));for(r=0;r<m;r++)(a=t[r]).isActive&&!a.isSensor&&(l=(s=a.collision).parentA,c=s.parentB,u=s.normal,p=a.separation-a.slop*v,(l.isStatic||c.isStatic)&&(p*=2),l.isStatic||l.isSleeping||(d=f/l.totalContacts,l.positionImpulse.x+=u.x*p*d,l.positionImpulse.y+=u.y*p*d),c.isStatic||c.isSleeping||(d=f/c.totalContacts,c.positionImpulse.x-=u.x*p*d,c.positionImpulse.y-=u.y*p*d))},e.postSolvePosition=function(n){for(var o=e._positionWarming,r=n.length,a=t.translate,s=i.update,l=0;l<r;l++){var c=n[l],u=c.positionImpulse,d=u.x,p=u.y,f=c.velocity;if(c.totalContacts=0,0!==d||0!==p){for(var v=0;v<c.parts.length;v++){var m=c.parts[v];a(m.vertices,u),s(m.bounds,m.vertices,f),m.position.x+=d,m.position.y+=p}c.positionPrev.x+=d,c.positionPrev.y+=p,d*f.x+p*f.y<0?(u.x=0,u.y=0):(u.x*=o,u.y*=o)}}},e.preSolveVelocity=function(e){var t,n,i=e.length;for(t=0;t<i;t++){var o=e[t];if(o.isActive&&!o.isSensor){var r=o.contacts,a=o.contactCount,s=o.collision,l=s.parentA,c=s.parentB,u=s.normal,d=s.tangent;for(n=0;n<a;n++){var p=r[n],f=p.vertex,v=p.normalImpulse,m=p.tangentImpulse;if(0!==v||0!==m){var y=u.x*v+d.x*m,g=u.y*v+d.y*m;l.isStatic||l.isSleeping||(l.positionPrev.x+=y*l.inverseMass,l.positionPrev.y+=g*l.inverseMass,l.anglePrev+=l.inverseInertia*((f.x-l.position.x)*g-(f.y-l.position.y)*y)),c.isStatic||c.isSleeping||(c.positionPrev.x-=y*c.inverseMass,c.positionPrev.y-=g*c.inverseMass,c.anglePrev-=c.inverseInertia*((f.x-c.position.x)*g-(f.y-c.position.y)*y))}}}}},e.solveVelocity=function(t,i){var o,r,a,s,l=i/n._baseDelta,c=l*l*l,u=-e._restingThresh*l,d=e._restingThreshTangent,p=e._frictionNormalMultiplier*l,f=e._frictionMaxStatic,v=t.length;for(a=0;a<v;a++){var m=t[a];if(m.isActive&&!m.isSensor){var y=m.collision,g=y.parentA,x=y.parentB,h=y.normal.x,b=y.normal.y,S=y.tangent.x,w=y.tangent.y,A=m.inverseMass,P=m.friction*m.frictionStatic*p,B=m.contacts,M=m.contactCount,C=1/M,_=g.position.x-g.positionPrev.x,k=g.position.y-g.positionPrev.y,I=g.angle-g.anglePrev,T=x.position.x-x.positionPrev.x,R=x.position.y-x.positionPrev.y,D=x.angle-x.anglePrev;for(s=0;s<M;s++){var E=B[s],V=E.vertex,L=V.x-g.position.x,F=V.y-g.position.y,H=V.x-x.position.x,O=V.y-x.position.y,q=_-F*I-(T-O*D),U=k+L*I-(R+H*D),W=h*q+b*U,j=S*q+w*U,N=m.separation+W,G=Math.min(N,1),z=(G=N<0?0:G)*P;j<-z||j>z?(r=j>0?j:-j,(o=m.friction*(j>0?1:-1)*c)<-r?o=-r:o>r&&(o=r)):(o=j,r=f);var X=L*b-F*h,Q=H*b-O*h,Y=C/(A+g.inverseInertia*X*X+x.inverseInertia*Q*Q),Z=(1+m.restitution)*W*Y;if(o*=Y,W<u)E.normalImpulse=0;else{var $=E.normalImpulse;E.normalImpulse+=Z,E.normalImpulse>0&&(E.normalImpulse=0),Z=E.normalImpulse-$}if(j<-d||j>d)E.tangentImpulse=0;else{var J=E.tangentImpulse;E.tangentImpulse+=o,E.tangentImpulse<-r&&(E.tangentImpulse=-r),E.tangentImpulse>r&&(E.tangentImpulse=r),o=E.tangentImpulse-J}var K=h*Z+S*o,ee=b*Z+w*o;g.isStatic||g.isSleeping||(g.positionPrev.x+=K*g.inverseMass,g.positionPrev.y+=ee*g.inverseMass,g.anglePrev+=(L*ee-F*K)*g.inverseInertia),x.isStatic||x.isSleeping||(x.positionPrev.x-=K*x.inverseMass,x.positionPrev.y-=ee*x.inverseMass,x.anglePrev-=(H*ee-O*K)*x.inverseInertia)}}}},O}function _e(){if(W)return U;W=1;var e={};U=e;var t=we(),n=de();return e.create=function(e){return n.extend({table:{},list:[],collisionStart:[],collisionActive:[],collisionEnd:[]},e)},e.update=function(e,n,i){var o,r,a,s=t.update,l=t.create,c=t.setActive,u=e.table,d=e.list,p=d.length,f=p,v=e.collisionStart,m=e.collisionEnd,y=e.collisionActive,g=n.length,x=0,h=0,b=0;for(a=0;a<g;a++)(r=(o=n[a]).pair)?(r.isActive&&(y[b++]=r),s(r,o,i)):(u[(r=l(o,i)).id]=r,v[x++]=r,d[f++]=r);for(f=0,p=d.length,a=0;a<p;a++)(r=d[a]).timeUpdated>=i?d[f++]=r:(c(r,!1,i),r.collision.parentA.sleepCounter>0&&r.collision.parentB.sleepCounter>0?d[f++]=r:(m[h++]=r,delete u[r.id]));d.length!==f&&(d.length=f),v.length!==x&&(v.length=x),m.length!==h&&(m.length=h),y.length!==b&&(y.length=b)},e.clear=function(e){return e.table={},e.list.length=0,e.collisionStart.length=0,e.collisionActive.length=0,e.collisionEnd.length=0,e},U}function ke(){if(N)return j;N=1;var e={};j=e;var t=ge(),n=Ce(),i=Me(),o=_e(),r=ye(),a=Pe(),s=Be(),l=de(),c=he();return e._deltaMax=1e3/60,e.create=function(e){e=e||{};var t=l.extend({positionIterations:6,velocityIterations:4,constraintIterations:2,enableSleeping:!1,events:[],plugin:{},gravity:{x:0,y:1,scale:.001},timing:{timestamp:0,timeScale:1,lastDelta:0,lastElapsed:0,lastUpdatesPerFrame:0}},e);return t.world=e.world||a.create({label:"World"}),t.pairs=e.pairs||o.create(),t.detector=e.detector||i.create(),t.detector.pairs=t.pairs,t.grid={buckets:[]},t.world.gravity=t.gravity,t.broadphase=t.grid,t.metrics={},t},e.update=function(c,u){var d,p=l.now(),f=c.world,v=c.detector,m=c.pairs,y=c.timing,g=y.timestamp;u>e._deltaMax&&l.warnOnce("Matter.Engine.update: delta argument is recommended to be less than or equal to",e._deltaMax.toFixed(3),"ms."),u=void 0!==u?u:l._baseDelta,u*=y.timeScale,y.timestamp+=u,y.lastDelta=u;var x={timestamp:y.timestamp,delta:u};r.trigger(c,"beforeUpdate",x);var h=a.allBodies(f),b=a.allConstraints(f);for(f.isModified&&(i.setBodies(v,h),a.setModified(f,!1,!1,!0)),c.enableSleeping&&t.update(h,u),e._bodiesApplyGravity(h,c.gravity),u>0&&e._bodiesUpdate(h,u),r.trigger(c,"beforeSolve",x),s.preSolveAll(h),d=0;d<c.constraintIterations;d++)s.solveAll(b,u);s.postSolveAll(h);var S=i.collisions(v);if(o.update(m,S,g),c.enableSleeping)for(t.afterCollisions(m.list),d=0;d<m.collisionEnd.length;d++){var w=m.collisionEnd[d],A=w.collision.parentA,P=w.collision.parentB;!A.isStatic&&A.isSleeping&&t.set(A,!1),!P.isStatic&&P.isSleeping&&t.set(P,!1)}m.collisionStart.length>0&&r.trigger(c,"collisionStart",{pairs:m.collisionStart,timestamp:y.timestamp,delta:u});var B=l.clamp(20/c.positionIterations,0,1);for(n.preSolvePosition(m.list),d=0;d<c.positionIterations;d++)n.solvePosition(m.list,u,B);for(n.postSolvePosition(h),s.preSolveAll(h),d=0;d<c.constraintIterations;d++)s.solveAll(b,u);for(s.postSolveAll(h),n.preSolveVelocity(m.list),d=0;d<c.velocityIterations;d++)n.solveVelocity(m.list,u);return e._bodiesUpdateVelocities(h),m.collisionActive.length>0&&r.trigger(c,"collisionActive",{pairs:m.collisionActive,timestamp:y.timestamp,delta:u}),m.collisionEnd.length>0&&r.trigger(c,"collisionEnd",{pairs:m.collisionEnd,timestamp:y.timestamp,delta:u}),e._bodiesClearForces(h),r.trigger(c,"afterUpdate",x),c.timing.lastElapsed=l.now()-p,c},e.merge=function(n,i){if(l.extend(n,i),i.world){n.world=i.world,e.clear(n);for(var o=a.allBodies(n.world),r=0;r<o.length;r++){var s=o[r];t.set(s,!1),s.id=l.nextId()}}},e.clear=function(e){o.clear(e.pairs),i.clear(e.detector)},e._bodiesClearForces=function(e){for(var t=e.length,n=0;n<t;n++){var i=e[n];i.force.x=0,i.force.y=0,i.torque=0}},e._bodiesApplyGravity=function(e,t){var n=void 0!==t.scale?t.scale:.001,i=e.length;if((0!==t.x||0!==t.y)&&0!==n)for(var o=0;o<i;o++){var r=e[o];r.isStatic||r.isSleeping||(r.force.y+=r.mass*t.y*n,r.force.x+=r.mass*t.x*n)}},e._bodiesUpdate=function(e,t){for(var n=e.length,i=0;i<n;i++){var o=e[i];o.isStatic||o.isSleeping||c.update(o,t)}},e._bodiesUpdateVelocities=function(e){for(var t=e.length,n=0;n<t;n++)c.updateVelocities(e[n])},j}function Ie(){if(Q)return X;Q=1;var e={};X=e;var t=de();return e.create=function(n){var i={};return n||t.log("Mouse.create: element was undefined, defaulting to document.body","warn"),i.element=n||document.body,i.absolute={x:0,y:0},i.position={x:0,y:0},i.mousedownPosition={x:0,y:0},i.mouseupPosition={x:0,y:0},i.offset={x:0,y:0},i.scale={x:1,y:1},i.wheelDelta=0,i.button=-1,i.pixelRatio=parseInt(i.element.getAttribute("data-pixel-ratio"),10)||1,i.sourceEvents={mousemove:null,mousedown:null,mouseup:null,mousewheel:null},i.mousemove=function(t){var n=e._getRelativeMousePosition(t,i.element,i.pixelRatio);t.changedTouches&&(i.button=0,t.preventDefault()),i.absolute.x=n.x,i.absolute.y=n.y,i.position.x=i.absolute.x*i.scale.x+i.offset.x,i.position.y=i.absolute.y*i.scale.y+i.offset.y,i.sourceEvents.mousemove=t},i.mousedown=function(t){var n=e._getRelativeMousePosition(t,i.element,i.pixelRatio);t.changedTouches?(i.button=0,t.preventDefault()):i.button=t.button,i.absolute.x=n.x,i.absolute.y=n.y,i.position.x=i.absolute.x*i.scale.x+i.offset.x,i.position.y=i.absolute.y*i.scale.y+i.offset.y,i.mousedownPosition.x=i.position.x,i.mousedownPosition.y=i.position.y,i.sourceEvents.mousedown=t},i.mouseup=function(t){var n=e._getRelativeMousePosition(t,i.element,i.pixelRatio);t.changedTouches&&t.preventDefault(),i.button=-1,i.absolute.x=n.x,i.absolute.y=n.y,i.position.x=i.absolute.x*i.scale.x+i.offset.x,i.position.y=i.absolute.y*i.scale.y+i.offset.y,i.mouseupPosition.x=i.position.x,i.mouseupPosition.y=i.position.y,i.sourceEvents.mouseup=t},i.mousewheel=function(e){i.wheelDelta=Math.max(-1,Math.min(1,e.wheelDelta||-e.detail)),e.preventDefault(),i.sourceEvents.mousewheel=e},e.setElement(i,i.element),i},e.setElement=function(e,t){e.element=t,t.addEventListener("mousemove",e.mousemove,{passive:!0}),t.addEventListener("mousedown",e.mousedown,{passive:!0}),t.addEventListener("mouseup",e.mouseup,{passive:!0}),t.addEventListener("wheel",e.mousewheel,{passive:!1}),t.addEventListener("touchmove",e.mousemove,{passive:!1}),t.addEventListener("touchstart",e.mousedown,{passive:!1}),t.addEventListener("touchend",e.mouseup,{passive:!1})},e.clearSourceEvents=function(e){e.sourceEvents.mousemove=null,e.sourceEvents.mousedown=null,e.sourceEvents.mouseup=null,e.sourceEvents.mousewheel=null,e.wheelDelta=0},e.setOffset=function(e,t){e.offset.x=t.x,e.offset.y=t.y,e.position.x=e.absolute.x*e.scale.x+e.offset.x,e.position.y=e.absolute.y*e.scale.y+e.offset.y},e.setScale=function(e,t){e.scale.x=t.x,e.scale.y=t.y,e.position.x=e.absolute.x*e.scale.x+e.offset.x,e.position.y=e.absolute.y*e.scale.y+e.offset.y},e._getRelativeMousePosition=function(e,t,n){var i,o,r=t.getBoundingClientRect(),a=document.documentElement||document.body.parentNode||document.body,s=void 0!==window.pageXOffset?window.pageXOffset:a.scrollLeft,l=void 0!==window.pageYOffset?window.pageYOffset:a.scrollTop,c=e.changedTouches;return c?(i=c[0].pageX-r.left-s,o=c[0].pageY-r.top-l):(i=e.pageX-r.left-s,o=e.pageY-r.top-l),{x:i/(t.clientWidth/(t.width||t.clientWidth)*n),y:o/(t.clientHeight/(t.height||t.clientHeight)*n)}},X}var Te=function(){if(ce)return ue.exports;ce=1;var e=ue.exports=function(){if(l)return s;l=1;var e={};s=e;var t=pe(),n=de();return e.name="matter-js",e.version="0.20.0",e.uses=[],e.used=[],e.use=function(){t.use(e,Array.prototype.slice.call(arguments))},e.before=function(t,i){return t=t.replace(/^Matter./,""),n.chainPathBefore(e,t,i)},e.after=function(t,i){return t=t.replace(/^Matter./,""),n.chainPathAfter(e,t,i)},s}();return e.Axes=ve(),e.Bodies=be(),e.Body=he(),e.Bounds=xe(),e.Collision=Ae(),e.Common=de(),e.Composite=Pe(),e.Composites=function(){if(L)return V;L=1;var e={};V=e;var t=Pe(),n=Be(),i=de(),o=he(),r=be(),a=i.deprecated;return e.stack=function(e,n,i,r,a,s,l){for(var c,u=t.create({label:"Stack"}),d=e,p=n,f=0,v=0;v<r;v++){for(var m=0,y=0;y<i;y++){var g=l(d,p,y,v,c,f);if(g){var x=g.bounds.max.y-g.bounds.min.y,h=g.bounds.max.x-g.bounds.min.x;x>m&&(m=x),o.translate(g,{x:.5*h,y:.5*x}),d=g.bounds.max.x+a,t.addBody(u,g),c=g,f+=1}else d+=a}p+=m+s,d=e}return u},e.chain=function(e,o,r,a,s,l){for(var c=e.bodies,u=1;u<c.length;u++){var d=c[u-1],p=c[u],f=d.bounds.max.y-d.bounds.min.y,v=d.bounds.max.x-d.bounds.min.x,m=p.bounds.max.y-p.bounds.min.y,y={bodyA:d,pointA:{x:v*o,y:f*r},bodyB:p,pointB:{x:(p.bounds.max.x-p.bounds.min.x)*a,y:m*s}},g=i.extend(y,l);t.addConstraint(e,n.create(g))}return e.label+=" Chain",e},e.mesh=function(e,o,r,a,s){var l,c,u,d,p,f=e.bodies;for(l=0;l<r;l++){for(c=1;c<o;c++)u=f[c-1+l*o],d=f[c+l*o],t.addConstraint(e,n.create(i.extend({bodyA:u,bodyB:d},s)));if(l>0)for(c=0;c<o;c++)u=f[c+(l-1)*o],d=f[c+l*o],t.addConstraint(e,n.create(i.extend({bodyA:u,bodyB:d},s))),a&&c>0&&(p=f[c-1+(l-1)*o],t.addConstraint(e,n.create(i.extend({bodyA:p,bodyB:d},s)))),a&&c<o-1&&(p=f[c+1+(l-1)*o],t.addConstraint(e,n.create(i.extend({bodyA:p,bodyB:d},s))))}return e.label+=" Mesh",e},e.pyramid=function(t,n,i,r,a,s,l){return e.stack(t,n,i,r,a,s,function(e,n,s,c,u,d){var p=Math.min(r,Math.ceil(i/2)),f=u?u.bounds.max.x-u.bounds.min.x:0;if(!(c>p||s<(c=p-c)||s>i-1-c))return 1===d&&o.translate(u,{x:(s+(i%2==1?1:-1))*f,y:0}),l(t+(u?s*f:0)+s*a,n,s,c,u,d)})},e.newtonsCradle=function(e,i,o,a,s){for(var l=t.create({label:"Newtons Cradle"}),c=0;c<o;c++){var u=r.circle(e+c*(1.9*a),i+s,a,{inertia:1/0,restitution:1,friction:0,frictionAir:1e-4,slop:1}),d=n.create({pointA:{x:e+c*(1.9*a),y:i},bodyB:u});t.addBody(l,u),t.addConstraint(l,d)}return l},a(e,"newtonsCradle","Composites.newtonsCradle ➤ moved to newtonsCradle example"),e.car=function(e,i,a,s,l){var c=o.nextGroup(!0),u=.5*-a+20,d=.5*a-20,p=t.create({label:"Car"}),f=r.rectangle(e,i,a,s,{collisionFilter:{group:c},chamfer:{radius:.5*s},density:2e-4}),v=r.circle(e+u,i+0,l,{collisionFilter:{group:c},friction:.8}),m=r.circle(e+d,i+0,l,{collisionFilter:{group:c},friction:.8}),y=n.create({bodyB:f,pointB:{x:u,y:0},bodyA:v,stiffness:1,length:0}),g=n.create({bodyB:f,pointB:{x:d,y:0},bodyA:m,stiffness:1,length:0});return t.addBody(p,f),t.addBody(p,v),t.addBody(p,m),t.addConstraint(p,y),t.addConstraint(p,g),p},a(e,"car","Composites.car ➤ moved to car example"),e.softBody=function(t,n,o,a,s,l,c,u,d,p){d=i.extend({inertia:1/0},d),p=i.extend({stiffness:.2,render:{type:"line",anchors:!1}},p);var f=e.stack(t,n,o,a,s,l,function(e,t){return r.circle(e,t,u,d)});return e.mesh(f,o,a,c,p),f.label="Soft Body",f},a(e,"softBody","Composites.softBody ➤ moved to softBody and cloth examples"),V}(),e.Constraint=Be(),e.Contact=Se(),e.Detector=Me(),e.Engine=ke(),e.Events=ye(),e.Grid=function(){if(z)return G;z=1;var e={};G=e;var t=we(),n=de(),i=n.deprecated;return e.create=function(e){return n.extend({buckets:{},pairs:{},pairsList:[],bucketWidth:48,bucketHeight:48},e)},e.update=function(t,n,i,o){var r,a,s,l,c,u=i.world,d=t.buckets,p=!1;for(r=0;r<n.length;r++){var f=n[r];if((!f.isSleeping||o)&&(!u.bounds||!(f.bounds.max.x<u.bounds.min.x||f.bounds.min.x>u.bounds.max.x||f.bounds.max.y<u.bounds.min.y||f.bounds.min.y>u.bounds.max.y))){var v=e._getRegion(t,f);if(!f.region||v.id!==f.region.id||o){f.region&&!o||(f.region=v);var m=e._regionUnion(v,f.region);for(a=m.startCol;a<=m.endCol;a++)for(s=m.startRow;s<=m.endRow;s++){l=d[c=e._getBucketId(a,s)];var y=a>=v.startCol&&a<=v.endCol&&s>=v.startRow&&s<=v.endRow,g=a>=f.region.startCol&&a<=f.region.endCol&&s>=f.region.startRow&&s<=f.region.endRow;!y&&g&&g&&l&&e._bucketRemoveBody(t,l,f),(f.region===v||y&&!g||o)&&(l||(l=e._createBucket(d,c)),e._bucketAddBody(t,l,f))}f.region=v,p=!0}}}p&&(t.pairsList=e._createActivePairsList(t))},i(e,"update","Grid.update ➤ replaced by Matter.Detector"),e.clear=function(e){e.buckets={},e.pairs={},e.pairsList=[]},i(e,"clear","Grid.clear ➤ replaced by Matter.Detector"),e._regionUnion=function(t,n){var i=Math.min(t.startCol,n.startCol),o=Math.max(t.endCol,n.endCol),r=Math.min(t.startRow,n.startRow),a=Math.max(t.endRow,n.endRow);return e._createRegion(i,o,r,a)},e._getRegion=function(t,n){var i=n.bounds,o=Math.floor(i.min.x/t.bucketWidth),r=Math.floor(i.max.x/t.bucketWidth),a=Math.floor(i.min.y/t.bucketHeight),s=Math.floor(i.max.y/t.bucketHeight);return e._createRegion(o,r,a,s)},e._createRegion=function(e,t,n,i){return{id:e+","+t+","+n+","+i,startCol:e,endCol:t,startRow:n,endRow:i}},e._getBucketId=function(e,t){return"C"+e+"R"+t},e._createBucket=function(e,t){return e[t]=[]},e._bucketAddBody=function(e,n,i){var o,r=e.pairs,a=t.id,s=n.length;for(o=0;o<s;o++){var l=n[o];if(!(i.id===l.id||i.isStatic&&l.isStatic)){var c=a(i,l),u=r[c];u?u[2]+=1:r[c]=[i,l,1]}}n.push(i)},e._bucketRemoveBody=function(e,i,o){var r,a=e.pairs,s=t.id;i.splice(n.indexOf(i,o),1);var l=i.length;for(r=0;r<l;r++){var c=a[s(o,i[r])];c&&(c[2]-=1)}},e._createActivePairsList=function(e){var t,i,o=e.pairs,r=n.keys(o),a=r.length,s=[];for(i=0;i<a;i++)(t=o[r[i]])[2]>0?s.push(t):delete o[r[i]];return s},G}(),e.Mouse=Ie(),e.MouseConstraint=function(){if(Z)return Y;Z=1;var e={};Y=e;var t=me(),n=ge(),i=Ie(),o=ye(),r=Me(),a=Be(),s=Pe(),l=de(),c=xe();return e.create=function(t,n){var r=(t?t.mouse:null)||(n?n.mouse:null);r||(t&&t.render&&t.render.canvas?r=i.create(t.render.canvas):n&&n.element?r=i.create(n.element):(r=i.create(),l.warn("MouseConstraint.create: options.mouse was undefined, options.element was undefined, may not function as expected")));var c={type:"mouseConstraint",mouse:r,element:null,body:null,constraint:a.create({label:"Mouse Constraint",pointA:r.position,pointB:{x:0,y:0},length:.01,stiffness:.1,angularStiffness:1,render:{strokeStyle:"#90EE90",lineWidth:3}}),collisionFilter:{category:1,mask:4294967295,group:0}},u=l.extend(c,n);return o.on(t,"beforeUpdate",function(){var n=s.allBodies(t.world);e.update(u,n),e._triggerEvents(u)}),u},e.update=function(e,i){var a=e.mouse,s=e.constraint,l=e.body;if(0===a.button){if(s.bodyB)n.set(s.bodyB,!1),s.pointA=a.position;else for(var u=0;u<i.length;u++)if(l=i[u],c.contains(l.bounds,a.position)&&r.canCollide(l.collisionFilter,e.collisionFilter))for(var d=l.parts.length>1?1:0;d<l.parts.length;d++){var p=l.parts[d];if(t.contains(p.vertices,a.position)){s.pointA=a.position,s.bodyB=e.body=l,s.pointB={x:a.position.x-l.position.x,y:a.position.y-l.position.y},s.angleB=l.angle,n.set(l,!1),o.trigger(e,"startdrag",{mouse:a,body:l});break}}}else s.bodyB=e.body=null,s.pointB=null,l&&o.trigger(e,"enddrag",{mouse:a,body:l})},e._triggerEvents=function(e){var t=e.mouse,n=t.sourceEvents;n.mousemove&&o.trigger(e,"mousemove",{mouse:t}),n.mousedown&&o.trigger(e,"mousedown",{mouse:t}),n.mouseup&&o.trigger(e,"mouseup",{mouse:t}),i.clearSourceEvents(t)},Y}(),e.Pair=we(),e.Pairs=_e(),e.Plugin=pe(),e.Query=function(){if(J)return $;J=1;var e={};$=e;var t=fe(),n=Ae(),i=xe(),o=be(),r=me();return e.collides=function(e,t){for(var o=[],r=t.length,a=e.bounds,s=n.collides,l=i.overlaps,c=0;c<r;c++){var u=t[c],d=u.parts.length,p=1===d?0:1;if(l(u.bounds,a))for(var f=p;f<d;f++){var v=u.parts[f];if(l(v.bounds,a)){var m=s(v,e);if(m){o.push(m);break}}}}return o},e.ray=function(n,i,r,a){a=a||1e-100;for(var s=t.angle(i,r),l=t.magnitude(t.sub(i,r)),c=.5*(r.x+i.x),u=.5*(r.y+i.y),d=o.rectangle(c,u,l,a,{angle:s}),p=e.collides(d,n),f=0;f<p.length;f+=1){var v=p[f];v.body=v.bodyB=v.bodyA}return p},e.region=function(e,t,n){for(var o=[],r=0;r<e.length;r++){var a=e[r],s=i.overlaps(a.bounds,t);(s&&!n||!s&&n)&&o.push(a)}return o},e.point=function(e,t){for(var n=[],o=0;o<e.length;o++){var a=e[o];if(i.contains(a.bounds,t))for(var s=1===a.parts.length?0:1;s<a.parts.length;s++){var l=a.parts[s];if(i.contains(l.bounds,t)&&r.contains(l.vertices,t)){n.push(a);break}}}return n},$}(),e.Render=function(){if(ee)return K;ee=1;var e={};K=e;var t=he(),n=de(),i=Pe(),o=xe(),r=ye(),a=fe(),s=Ie();return function(){var l,c;"undefined"!=typeof window&&(l=window.requestAnimationFrame||window.webkitRequestAnimationFrame||window.mozRequestAnimationFrame||window.msRequestAnimationFrame||function(e){window.setTimeout(function(){e(n.now())},1e3/60)},c=window.cancelAnimationFrame||window.mozCancelAnimationFrame||window.webkitCancelAnimationFrame||window.msCancelAnimationFrame),e._goodFps=30,e._goodDelta=1e3/60,e.create=function(t){var i={engine:null,element:null,canvas:null,mouse:null,frameRequestId:null,timing:{historySize:60,delta:0,deltaHistory:[],lastTime:0,lastTimestamp:0,lastElapsed:0,timestampElapsed:0,timestampElapsedHistory:[],engineDeltaHistory:[],engineElapsedHistory:[],engineUpdatesHistory:[],elapsedHistory:[]},options:{width:800,height:600,pixelRatio:1,background:"#14151f",wireframeBackground:"#14151f",wireframeStrokeStyle:"#bbb",hasBounds:!!t.bounds,enabled:!0,wireframes:!0,showSleeping:!0,showDebug:!1,showStats:!1,showPerformance:!1,showBounds:!1,showVelocity:!1,showCollisions:!1,showSeparations:!1,showAxes:!1,showPositions:!1,showAngleIndicator:!1,showIds:!1,showVertexNumbers:!1,showConvexHulls:!1,showInternalEdges:!1,showMousePosition:!1}},o=n.extend(i,t);return o.canvas&&(o.canvas.width=o.options.width||o.canvas.width,o.canvas.height=o.options.height||o.canvas.height),o.mouse=t.mouse,o.engine=t.engine,o.canvas=o.canvas||p(o.options.width,o.options.height),o.context=o.canvas.getContext("2d"),o.textures={},o.bounds=o.bounds||{min:{x:0,y:0},max:{x:o.canvas.width,y:o.canvas.height}},o.controller=e,o.options.showBroadphase=!1,1!==o.options.pixelRatio&&e.setPixelRatio(o,o.options.pixelRatio),n.isElement(o.element)&&o.element.appendChild(o.canvas),o},e.run=function(t){!function n(i){t.frameRequestId=l(n),u(t,i),e.world(t,i),t.context.setTransform(t.options.pixelRatio,0,0,t.options.pixelRatio,0,0),(t.options.showStats||t.options.showDebug)&&e.stats(t,t.context,i),(t.options.showPerformance||t.options.showDebug)&&e.performance(t,t.context,i),t.context.setTransform(1,0,0,1,0,0)}()},e.stop=function(e){c(e.frameRequestId)},e.setPixelRatio=function(e,t){var n=e.options,i=e.canvas;"auto"===t&&(t=f(i)),n.pixelRatio=t,i.setAttribute("data-pixel-ratio",t),i.width=n.width*t,i.height=n.height*t,i.style.width=n.width+"px",i.style.height=n.height+"px"},e.setSize=function(t,n,i){t.options.width=n,t.options.height=i,t.bounds.max.x=t.bounds.min.x+n,t.bounds.max.y=t.bounds.min.y+i,1!==t.options.pixelRatio?e.setPixelRatio(t,t.options.pixelRatio):(t.canvas.width=n,t.canvas.height=i)},e.lookAt=function(e,t,i,o){o=void 0===o||o,t=n.isArray(t)?t:[t],i=i||{x:0,y:0};for(var r={min:{x:1/0,y:1/0},max:{x:-1/0,y:-1/0}},a=0;a<t.length;a+=1){var l=t[a],c=l.bounds?l.bounds.min:l.min||l.position||l,u=l.bounds?l.bounds.max:l.max||l.position||l;c&&u&&(c.x<r.min.x&&(r.min.x=c.x),u.x>r.max.x&&(r.max.x=u.x),c.y<r.min.y&&(r.min.y=c.y),u.y>r.max.y&&(r.max.y=u.y))}var d=r.max.x-r.min.x+2*i.x,p=r.max.y-r.min.y+2*i.y,f=e.canvas.height,v=e.canvas.width/f,m=d/p,y=1,g=1;m>v?g=m/v:y=v/m,e.options.hasBounds=!0,e.bounds.min.x=r.min.x,e.bounds.max.x=r.min.x+d*y,e.bounds.min.y=r.min.y,e.bounds.max.y=r.min.y+p*g,o&&(e.bounds.min.x+=.5*d-d*y*.5,e.bounds.max.x+=.5*d-d*y*.5,e.bounds.min.y+=.5*p-p*g*.5,e.bounds.max.y+=.5*p-p*g*.5),e.bounds.min.x-=i.x,e.bounds.max.x-=i.x,e.bounds.min.y-=i.y,e.bounds.max.y-=i.y,e.mouse&&(s.setScale(e.mouse,{x:(e.bounds.max.x-e.bounds.min.x)/e.canvas.width,y:(e.bounds.max.y-e.bounds.min.y)/e.canvas.height}),s.setOffset(e.mouse,e.bounds.min))},e.startViewTransform=function(e){var t=e.bounds.max.x-e.bounds.min.x,n=e.bounds.max.y-e.bounds.min.y,i=t/e.options.width,o=n/e.options.height;e.context.setTransform(e.options.pixelRatio/i,0,0,e.options.pixelRatio/o,0,0),e.context.translate(-e.bounds.min.x,-e.bounds.min.y)},e.endViewTransform=function(e){e.context.setTransform(e.options.pixelRatio,0,0,e.options.pixelRatio,0,0)},e.world=function(t,l){var c,u=n.now(),d=t.engine,p=d.world,f=t.canvas,v=t.context,y=t.options,g=t.timing,x=i.allBodies(p),h=i.allConstraints(p),b=y.wireframes?y.wireframeBackground:y.background,S=[],w=[],A={timestamp:d.timing.timestamp};if(r.trigger(t,"beforeRender",A),t.currentBackground!==b&&m(t,b),v.globalCompositeOperation="source-in",v.fillStyle="transparent",v.fillRect(0,0,f.width,f.height),v.globalCompositeOperation="source-over",y.hasBounds){for(c=0;c<x.length;c++){var P=x[c];o.overlaps(P.bounds,t.bounds)&&S.push(P)}for(c=0;c<h.length;c++){var B=h[c],M=B.bodyA,C=B.bodyB,_=B.pointA,k=B.pointB;M&&(_=a.add(M.position,B.pointA)),C&&(k=a.add(C.position,B.pointB)),_&&k&&(o.contains(t.bounds,_)||o.contains(t.bounds,k))&&w.push(B)}e.startViewTransform(t),t.mouse&&(s.setScale(t.mouse,{x:(t.bounds.max.x-t.bounds.min.x)/t.options.width,y:(t.bounds.max.y-t.bounds.min.y)/t.options.height}),s.setOffset(t.mouse,t.bounds.min))}else w=h,S=x,1!==t.options.pixelRatio&&t.context.setTransform(t.options.pixelRatio,0,0,t.options.pixelRatio,0,0);!y.wireframes||d.enableSleeping&&y.showSleeping?e.bodies(t,S,v):(y.showConvexHulls&&e.bodyConvexHulls(t,S,v),e.bodyWireframes(t,S,v)),y.showBounds&&e.bodyBounds(t,S,v),(y.showAxes||y.showAngleIndicator)&&e.bodyAxes(t,S,v),y.showPositions&&e.bodyPositions(t,S,v),y.showVelocity&&e.bodyVelocity(t,S,v),y.showIds&&e.bodyIds(t,S,v),y.showSeparations&&e.separations(t,d.pairs.list,v),y.showCollisions&&e.collisions(t,d.pairs.list,v),y.showVertexNumbers&&e.vertexNumbers(t,S,v),y.showMousePosition&&e.mousePosition(t,t.mouse,v),e.constraints(w,v),y.hasBounds&&e.endViewTransform(t),r.trigger(t,"afterRender",A),g.lastElapsed=n.now()-u},e.stats=function(e,t,n){for(var o=e.engine,r=o.world,a=i.allBodies(r),s=0,l=0,c=0;c<a.length;c+=1)s+=a[c].parts.length;var u={Part:s,Body:a.length,Cons:i.allConstraints(r).length,Comp:i.allComposites(r).length,Pair:o.pairs.list.length};for(var d in t.fillStyle="#0e0f19",t.fillRect(l,0,302.5,44),t.font="12px Arial",t.textBaseline="top",t.textAlign="right",u){var p=u[d];t.fillStyle="#aaa",t.fillText(d,l+55,8),t.fillStyle="#eee",t.fillText(p,l+55,26),l+=55}},e.performance=function(t,i){var o=t.engine,r=t.timing,a=r.deltaHistory,s=r.elapsedHistory,l=r.timestampElapsedHistory,c=r.engineDeltaHistory,u=r.engineUpdatesHistory,p=r.engineElapsedHistory,f=o.timing.lastUpdatesPerFrame,v=o.timing.lastDelta,m=d(a),y=d(s),g=d(c),x=d(u),h=d(p),b=d(l)/m||0,S=Math.round(m/v),w=1e3/m||0,A=60,P=10,B=69;i.fillStyle="#0e0f19",i.fillRect(0,50,442,34),e.status(i,P,B,A,4,a.length,Math.round(w)+" fps",w/e._goodFps,function(e){return a[e]/m-1}),e.status(i,82,B,A,4,c.length,v.toFixed(2)+" dt",e._goodDelta/v,function(e){return c[e]/g-1}),e.status(i,154,B,A,4,u.length,f+" upf",Math.pow(n.clamp(x/S||1,0,1),4),function(e){return u[e]/x-1}),e.status(i,226,B,A,4,p.length,h.toFixed(2)+" ut",1-f*h/e._goodFps,function(e){return p[e]/h-1}),e.status(i,298,B,A,4,s.length,y.toFixed(2)+" rt",1-y/e._goodFps,function(e){return s[e]/y-1}),e.status(i,370,B,A,4,l.length,b.toFixed(2)+" x",b*b*b,function(e){return(l[e]/a[e]/b||0)-1})},e.status=function(e,t,i,o,r,a,s,l,c){e.strokeStyle="#888",e.fillStyle="#444",e.lineWidth=1,e.fillRect(t,i+7,o,1),e.beginPath(),e.moveTo(t,i+7-r*n.clamp(.4*c(0),-2,2));for(var u=0;u<o;u+=1)e.lineTo(t+u,i+7-(u<a?r*n.clamp(.4*c(u),-2,2):0));e.stroke(),e.fillStyle="hsl("+n.clamp(25+95*l,0,120)+",100%,60%)",e.fillRect(t,i-7,4,4),e.font="12px Arial",e.textBaseline="middle",e.textAlign="right",e.fillStyle="#eee",e.fillText(s,t+o,i-5)},e.constraints=function(e,t){for(var i=t,o=0;o<e.length;o++){var r=e[o];if(r.render.visible&&r.pointA&&r.pointB){var s,l,c=r.bodyA,u=r.bodyB;if(s=c?a.add(c.position,r.pointA):r.pointA,"pin"===r.render.type)i.beginPath(),i.arc(s.x,s.y,3,0,2*Math.PI),i.closePath();else{if(l=u?a.add(u.position,r.pointB):r.pointB,i.beginPath(),i.moveTo(s.x,s.y),"spring"===r.render.type)for(var d,p=a.sub(l,s),f=a.perp(a.normalise(p)),v=Math.ceil(n.clamp(r.length/5,12,20)),m=1;m<v;m+=1)d=m%2==0?1:-1,i.lineTo(s.x+p.x*(m/v)+f.x*d*4,s.y+p.y*(m/v)+f.y*d*4);i.lineTo(l.x,l.y)}r.render.lineWidth&&(i.lineWidth=r.render.lineWidth,i.strokeStyle=r.render.strokeStyle,i.stroke()),r.render.anchors&&(i.fillStyle=r.render.strokeStyle,i.beginPath(),i.arc(s.x,s.y,3,0,2*Math.PI),i.arc(l.x,l.y,3,0,2*Math.PI),i.closePath(),i.fill())}}},e.bodies=function(e,t,n){var i=n;e.engine;var o,r,a,s,l=e.options,c=l.showInternalEdges||!l.wireframes;for(a=0;a<t.length;a++)if((o=t[a]).render.visible)for(s=o.parts.length>1?1:0;s<o.parts.length;s++)if((r=o.parts[s]).render.visible){if(l.showSleeping&&o.isSleeping?i.globalAlpha=.5*r.render.opacity:1!==r.render.opacity&&(i.globalAlpha=r.render.opacity),r.render.sprite&&r.render.sprite.texture&&!l.wireframes){var u=r.render.sprite,d=v(e,u.texture);i.translate(r.position.x,r.position.y),i.rotate(r.angle),i.drawImage(d,d.width*-u.xOffset*u.xScale,d.height*-u.yOffset*u.yScale,d.width*u.xScale,d.height*u.yScale),i.rotate(-r.angle),i.translate(-r.position.x,-r.position.y)}else{if(r.circleRadius)i.beginPath(),i.arc(r.position.x,r.position.y,r.circleRadius,0,2*Math.PI);else{i.beginPath(),i.moveTo(r.vertices[0].x,r.vertices[0].y);for(var p=1;p<r.vertices.length;p++)!r.vertices[p-1].isInternal||c?i.lineTo(r.vertices[p].x,r.vertices[p].y):i.moveTo(r.vertices[p].x,r.vertices[p].y),r.vertices[p].isInternal&&!c&&i.moveTo(r.vertices[(p+1)%r.vertices.length].x,r.vertices[(p+1)%r.vertices.length].y);i.lineTo(r.vertices[0].x,r.vertices[0].y),i.closePath()}l.wireframes?(i.lineWidth=1,i.strokeStyle=e.options.wireframeStrokeStyle,i.stroke()):(i.fillStyle=r.render.fillStyle,r.render.lineWidth&&(i.lineWidth=r.render.lineWidth,i.strokeStyle=r.render.strokeStyle,i.stroke()),i.fill())}i.globalAlpha=1}},e.bodyWireframes=function(e,t,n){var i,o,r,a,s,l=n,c=e.options.showInternalEdges;for(l.beginPath(),r=0;r<t.length;r++)if((i=t[r]).render.visible)for(s=i.parts.length>1?1:0;s<i.parts.length;s++){for(o=i.parts[s],l.moveTo(o.vertices[0].x,o.vertices[0].y),a=1;a<o.vertices.length;a++)!o.vertices[a-1].isInternal||c?l.lineTo(o.vertices[a].x,o.vertices[a].y):l.moveTo(o.vertices[a].x,o.vertices[a].y),o.vertices[a].isInternal&&!c&&l.moveTo(o.vertices[(a+1)%o.vertices.length].x,o.vertices[(a+1)%o.vertices.length].y);l.lineTo(o.vertices[0].x,o.vertices[0].y)}l.lineWidth=1,l.strokeStyle=e.options.wireframeStrokeStyle,l.stroke()},e.bodyConvexHulls=function(e,t,n){var i,o,r,a=n;for(a.beginPath(),o=0;o<t.length;o++)if((i=t[o]).render.visible&&1!==i.parts.length){for(a.moveTo(i.vertices[0].x,i.vertices[0].y),r=1;r<i.vertices.length;r++)a.lineTo(i.vertices[r].x,i.vertices[r].y);a.lineTo(i.vertices[0].x,i.vertices[0].y)}a.lineWidth=1,a.strokeStyle="rgba(255,255,255,0.2)",a.stroke()},e.vertexNumbers=function(e,t,n){var i,o,r,a=n;for(i=0;i<t.length;i++){var s=t[i].parts;for(r=s.length>1?1:0;r<s.length;r++){var l=s[r];for(o=0;o<l.vertices.length;o++)a.fillStyle="rgba(255,255,255,0.2)",a.fillText(i+"_"+o,l.position.x+.8*(l.vertices[o].x-l.position.x),l.position.y+.8*(l.vertices[o].y-l.position.y))}}},e.mousePosition=function(e,t,n){var i=n;i.fillStyle="rgba(255,255,255,0.8)",i.fillText(t.position.x+"  "+t.position.y,t.position.x+5,t.position.y-5)},e.bodyBounds=function(e,t,n){var i=n;e.engine;var o=e.options;i.beginPath();for(var r=0;r<t.length;r++)if(t[r].render.visible)for(var a=t[r].parts,s=a.length>1?1:0;s<a.length;s++){var l=a[s];i.rect(l.bounds.min.x,l.bounds.min.y,l.bounds.max.x-l.bounds.min.x,l.bounds.max.y-l.bounds.min.y)}o.wireframes?i.strokeStyle="rgba(255,255,255,0.08)":i.strokeStyle="rgba(0,0,0,0.1)",i.lineWidth=1,i.stroke()},e.bodyAxes=function(e,t,n){var i=n;e.engine;var o,r,a,s,l=e.options;for(i.beginPath(),r=0;r<t.length;r++){var c=t[r],u=c.parts;if(c.render.visible)if(l.showAxes)for(a=u.length>1?1:0;a<u.length;a++)for(o=u[a],s=0;s<o.axes.length;s++){var d=o.axes[s];i.moveTo(o.position.x,o.position.y),i.lineTo(o.position.x+20*d.x,o.position.y+20*d.y)}else for(a=u.length>1?1:0;a<u.length;a++)for(o=u[a],s=0;s<o.axes.length;s++)i.moveTo(o.position.x,o.position.y),i.lineTo((o.vertices[0].x+o.vertices[o.vertices.length-1].x)/2,(o.vertices[0].y+o.vertices[o.vertices.length-1].y)/2)}l.wireframes?(i.strokeStyle="indianred",i.lineWidth=1):(i.strokeStyle="rgba(255, 255, 255, 0.4)",i.globalCompositeOperation="overlay",i.lineWidth=2),i.stroke(),i.globalCompositeOperation="source-over"},e.bodyPositions=function(e,t,n){var i=n;e.engine;var o,r,a,s,l=e.options;for(i.beginPath(),a=0;a<t.length;a++)if((o=t[a]).render.visible)for(s=0;s<o.parts.length;s++)r=o.parts[s],i.arc(r.position.x,r.position.y,3,0,2*Math.PI,!1),i.closePath();for(l.wireframes?i.fillStyle="indianred":i.fillStyle="rgba(0,0,0,0.5)",i.fill(),i.beginPath(),a=0;a<t.length;a++)(o=t[a]).render.visible&&(i.arc(o.positionPrev.x,o.positionPrev.y,2,0,2*Math.PI,!1),i.closePath());i.fillStyle="rgba(255,165,0,0.8)",i.fill()},e.bodyVelocity=function(e,n,i){var o=i;o.beginPath();for(var r=0;r<n.length;r++){var a=n[r];if(a.render.visible){var s=t.getVelocity(a);o.moveTo(a.position.x,a.position.y),o.lineTo(a.position.x+s.x,a.position.y+s.y)}}o.lineWidth=3,o.strokeStyle="cornflowerblue",o.stroke()},e.bodyIds=function(e,t,n){var i,o,r=n;for(i=0;i<t.length;i++)if(t[i].render.visible){var a=t[i].parts;for(o=a.length>1?1:0;o<a.length;o++){var s=a[o];r.font="12px Arial",r.fillStyle="rgba(255,255,255,0.5)",r.fillText(s.id,s.position.x+10,s.position.y-10)}}},e.collisions=function(e,t,n){var i,o,r,a,s=n,l=e.options;for(s.beginPath(),r=0;r<t.length;r++)if((i=t[r]).isActive)for(a=0;a<i.contactCount;a++){var c=i.contacts[a].vertex;s.rect(c.x-1.5,c.y-1.5,3.5,3.5)}for(l.wireframes?s.fillStyle="rgba(255,255,255,0.7)":s.fillStyle="orange",s.fill(),s.beginPath(),r=0;r<t.length;r++)if((i=t[r]).isActive&&(o=i.collision,i.contactCount>0)){var u=i.contacts[0].vertex.x,d=i.contacts[0].vertex.y;2===i.contactCount&&(u=(i.contacts[0].vertex.x+i.contacts[1].vertex.x)/2,d=(i.contacts[0].vertex.y+i.contacts[1].vertex.y)/2),o.bodyB===o.supports[0].body||!0===o.bodyA.isStatic?s.moveTo(u-8*o.normal.x,d-8*o.normal.y):s.moveTo(u+8*o.normal.x,d+8*o.normal.y),s.lineTo(u,d)}l.wireframes?s.strokeStyle="rgba(255,165,0,0.7)":s.strokeStyle="orange",s.lineWidth=1,s.stroke()},e.separations=function(e,t,n){var i,o,r,a,s,l=n,c=e.options;for(l.beginPath(),s=0;s<t.length;s++)if((i=t[s]).isActive){r=(o=i.collision).bodyA;var u=1;(a=o.bodyB).isStatic||r.isStatic||(u=.5),a.isStatic&&(u=0),l.moveTo(a.position.x,a.position.y),l.lineTo(a.position.x-o.penetration.x*u,a.position.y-o.penetration.y*u),u=1,a.isStatic||r.isStatic||(u=.5),r.isStatic&&(u=0),l.moveTo(r.position.x,r.position.y),l.lineTo(r.position.x+o.penetration.x*u,r.position.y+o.penetration.y*u)}c.wireframes?l.strokeStyle="rgba(255,165,0,0.5)":l.strokeStyle="orange",l.stroke()},e.inspector=function(e,t){e.engine;var n,i=e.selected,o=e.render,r=o.options;if(r.hasBounds){var a=o.bounds.max.x-o.bounds.min.x,s=o.bounds.max.y-o.bounds.min.y,l=a/o.options.width,c=s/o.options.height;t.scale(1/l,1/c),t.translate(-o.bounds.min.x,-o.bounds.min.y)}for(var u=0;u<i.length;u++){var d=i[u].data;switch(t.translate(.5,.5),t.lineWidth=1,t.strokeStyle="rgba(255,165,0,0.9)",t.setLineDash([1,2]),d.type){case"body":n=d.bounds,t.beginPath(),t.rect(Math.floor(n.min.x-3),Math.floor(n.min.y-3),Math.floor(n.max.x-n.min.x+6),Math.floor(n.max.y-n.min.y+6)),t.closePath(),t.stroke();break;case"constraint":var p=d.pointA;d.bodyA&&(p=d.pointB),t.beginPath(),t.arc(p.x,p.y,10,0,2*Math.PI),t.closePath(),t.stroke()}t.setLineDash([]),t.translate(-.5,-.5)}null!==e.selectStart&&(t.translate(.5,.5),t.lineWidth=1,t.strokeStyle="rgba(255,165,0,0.6)",t.fillStyle="rgba(255,165,0,0.1)",n=e.selectBounds,t.beginPath(),t.rect(Math.floor(n.min.x),Math.floor(n.min.y),Math.floor(n.max.x-n.min.x),Math.floor(n.max.y-n.min.y)),t.closePath(),t.stroke(),t.fill(),t.translate(-.5,-.5)),r.hasBounds&&t.setTransform(1,0,0,1,0,0)};var u=function(t,n){var i=t.engine,o=t.timing,r=o.historySize,a=i.timing.timestamp;o.delta=n-o.lastTime||e._goodDelta,o.lastTime=n,o.timestampElapsed=a-o.lastTimestamp||0,o.lastTimestamp=a,o.deltaHistory.unshift(o.delta),o.deltaHistory.length=Math.min(o.deltaHistory.length,r),o.engineDeltaHistory.unshift(i.timing.lastDelta),o.engineDeltaHistory.length=Math.min(o.engineDeltaHistory.length,r),o.timestampElapsedHistory.unshift(o.timestampElapsed),o.timestampElapsedHistory.length=Math.min(o.timestampElapsedHistory.length,r),o.engineUpdatesHistory.unshift(i.timing.lastUpdatesPerFrame),o.engineUpdatesHistory.length=Math.min(o.engineUpdatesHistory.length,r),o.engineElapsedHistory.unshift(i.timing.lastElapsed),o.engineElapsedHistory.length=Math.min(o.engineElapsedHistory.length,r),o.elapsedHistory.unshift(o.lastElapsed),o.elapsedHistory.length=Math.min(o.elapsedHistory.length,r)},d=function(e){for(var t=0,n=0;n<e.length;n+=1)t+=e[n];return t/e.length||0},p=function(e,t){var n=document.createElement("canvas");return n.width=e,n.height=t,n.oncontextmenu=function(){return!1},n.onselectstart=function(){return!1},n},f=function(e){var t=e.getContext("2d");return(window.devicePixelRatio||1)/(t.webkitBackingStorePixelRatio||t.mozBackingStorePixelRatio||t.msBackingStorePixelRatio||t.oBackingStorePixelRatio||t.backingStorePixelRatio||1)},v=function(e,t){var n=e.textures[t];return n||((n=e.textures[t]=new Image).src=t,n)},m=function(e,t){var n=t;/(jpg|gif|png)$/.test(t)&&(n="url("+t+")"),e.canvas.style.background=n,e.canvas.style.backgroundSize="contain",e.currentBackground=t}}(),K}(),e.Resolver=Ce(),e.Runner=function(){if(ne)return te;ne=1;var e={};te=e;var t=ye(),n=ke(),i=de();return function(){e._maxFrameDelta=1e3/15,e._frameDeltaFallback=1e3/60,e._timeBufferMargin=1.5,e._elapsedNextEstimate=1,e._smoothingLowerBound=.1,e._smoothingUpperBound=.9,e.create=function(e){var t=i.extend({delta:1e3/60,frameDelta:null,frameDeltaSmoothing:!0,frameDeltaSnapping:!0,frameDeltaHistory:[],frameDeltaHistorySize:100,frameRequestId:null,timeBuffer:0,timeLastTick:null,maxUpdates:null,maxFrameTime:1e3/30,lastUpdatesDeferred:0,enabled:!0},e);return t.fps=0,t},e.run=function(t,n){return t.timeBuffer=e._frameDeltaFallback,function i(o){t.frameRequestId=e._onNextFrame(t,i),o&&t.enabled&&e.tick(t,n,o)}(),t},e.tick=function(r,a,s){var l=i.now(),c=r.delta,u=0,d=s-r.timeLastTick;if((!d||!r.timeLastTick||d>Math.max(e._maxFrameDelta,r.maxFrameTime))&&(d=r.frameDelta||e._frameDeltaFallback),r.frameDeltaSmoothing){r.frameDeltaHistory.push(d),r.frameDeltaHistory=r.frameDeltaHistory.slice(-r.frameDeltaHistorySize);var p=r.frameDeltaHistory.slice(0).sort(),f=r.frameDeltaHistory.slice(p.length*e._smoothingLowerBound,p.length*e._smoothingUpperBound);d=o(f)||d}r.frameDeltaSnapping&&(d=1e3/Math.round(1e3/d)),r.frameDelta=d,r.timeLastTick=s,r.timeBuffer+=r.frameDelta,r.timeBuffer=i.clamp(r.timeBuffer,0,r.frameDelta+c*e._timeBufferMargin),r.lastUpdatesDeferred=0;var v=r.maxUpdates||Math.ceil(r.maxFrameTime/c),m={timestamp:a.timing.timestamp};t.trigger(r,"beforeTick",m),t.trigger(r,"tick",m);for(var y=i.now();c>0&&r.timeBuffer>=c*e._timeBufferMargin;){t.trigger(r,"beforeUpdate",m),n.update(a,c),t.trigger(r,"afterUpdate",m),r.timeBuffer-=c,u+=1;var g=i.now()-l,x=i.now()-y,h=g+e._elapsedNextEstimate*x/u;if(u>=v||h>r.maxFrameTime){r.lastUpdatesDeferred=Math.round(Math.max(0,r.timeBuffer/c-e._timeBufferMargin));break}}a.timing.lastUpdatesPerFrame=u,t.trigger(r,"afterTick",m),r.frameDeltaHistory.length>=100&&(r.lastUpdatesDeferred&&Math.round(r.frameDelta/c)>v?i.warnOnce("Matter.Runner: runner reached runner.maxUpdates, see docs."):r.lastUpdatesDeferred&&i.warnOnce("Matter.Runner: runner reached runner.maxFrameTime, see docs."),void 0!==r.isFixed&&i.warnOnce("Matter.Runner: runner.isFixed is now redundant, see docs."),(r.deltaMin||r.deltaMax)&&i.warnOnce("Matter.Runner: runner.deltaMin and runner.deltaMax were removed, see docs."),0!==r.fps&&i.warnOnce("Matter.Runner: runner.fps was replaced by runner.delta, see docs."))},e.stop=function(t){e._cancelNextFrame(t)},e._onNextFrame=function(e,t){if("undefined"==typeof window||!window.requestAnimationFrame)throw new Error("Matter.Runner: missing required global window.requestAnimationFrame.");return e.frameRequestId=window.requestAnimationFrame(t),e.frameRequestId},e._cancelNextFrame=function(e){if("undefined"==typeof window||!window.cancelAnimationFrame)throw new Error("Matter.Runner: missing required global window.cancelAnimationFrame.");window.cancelAnimationFrame(e.frameRequestId)};var o=function(e){for(var t=0,n=e.length,i=0;i<n;i+=1)t+=e[i];return t/n||0}}(),te}(),e.SAT=function(){if(oe)return ie;oe=1;var e={};ie=e;var t=Ae(),n=de().deprecated;return e.collides=function(e,n){return t.collides(e,n)},n(e,"collides","SAT.collides ➤ replaced by Collision.collides"),ie}(),e.Sleeping=ge(),e.Svg=function(){if(ae)return re;ae=1;var e={};re=e,xe();var t=de();return e.pathToVertices=function(n,i){"undefined"==typeof window||"SVGPathSeg"in window||t.warn("Svg.pathToVertices: SVGPathSeg not defined, a polyfill is required.");var o,r,a,s,l,c,u,d,p,f,v,m=[],y=0,g=0,x=0;i=i||15;var h=function(e,t,n){var i=n%2==1&&n>1;if(!p||e!=p.x||t!=p.y){p&&i?(f=p.x,v=p.y):(f=0,v=0);var o={x:f+e,y:v+t};!i&&p||(p=o),m.push(o),g=f+e,x=v+t}},b=function(e){var t=e.pathSegTypeAsLetter.toUpperCase();if("Z"!==t){switch(t){case"M":case"L":case"T":case"C":case"S":case"Q":g=e.x,x=e.y;break;case"H":g=e.x;break;case"V":x=e.y}h(g,x,e.pathSegType)}};for(e._svgPathToAbsolute(n),a=n.getTotalLength(),c=[],o=0;o<n.pathSegList.numberOfItems;o+=1)c.push(n.pathSegList.getItem(o));for(u=c.concat();y<a;){if((l=c[n.getPathSegAtLength(y)])!=d){for(;u.length&&u[0]!=l;)b(u.shift());d=l}switch(l.pathSegTypeAsLetter.toUpperCase()){case"C":case"T":case"S":case"Q":case"A":s=n.getPointAtLength(y),h(s.x,s.y,0)}y+=i}for(o=0,r=u.length;o<r;++o)b(u[o]);return m},e._svgPathToAbsolute=function(e){for(var t,n,i,o,r,a,s=e.pathSegList,l=0,c=0,u=s.numberOfItems,d=0;d<u;++d){var p=s.getItem(d),f=p.pathSegTypeAsLetter;if(/[MLHVCSQTA]/.test(f))"x"in p&&(l=p.x),"y"in p&&(c=p.y);else switch("x1"in p&&(i=l+p.x1),"x2"in p&&(r=l+p.x2),"y1"in p&&(o=c+p.y1),"y2"in p&&(a=c+p.y2),"x"in p&&(l+=p.x),"y"in p&&(c+=p.y),f){case"m":s.replaceItem(e.createSVGPathSegMovetoAbs(l,c),d);break;case"l":s.replaceItem(e.createSVGPathSegLinetoAbs(l,c),d);break;case"h":s.replaceItem(e.createSVGPathSegLinetoHorizontalAbs(l),d);break;case"v":s.replaceItem(e.createSVGPathSegLinetoVerticalAbs(c),d);break;case"c":s.replaceItem(e.createSVGPathSegCurvetoCubicAbs(l,c,i,o,r,a),d);break;case"s":s.replaceItem(e.createSVGPathSegCurvetoCubicSmoothAbs(l,c,r,a),d);break;case"q":s.replaceItem(e.createSVGPathSegCurvetoQuadraticAbs(l,c,i,o),d);break;case"t":s.replaceItem(e.createSVGPathSegCurvetoQuadraticSmoothAbs(l,c),d);break;case"a":s.replaceItem(e.createSVGPathSegArcAbs(l,c,p.r1,p.r2,p.angle,p.largeArcFlag,p.sweepFlag),d);break;case"z":case"Z":l=t,c=n}"M"!=f&&"m"!=f||(t=l,n=c)}},re}(),e.Vector=fe(),e.Vertices=me(),e.World=function(){if(le)return se;le=1;var e={};se=e;var t=Pe();return de(),e.create=t.create,e.add=t.add,e.remove=t.remove,e.clear=t.clear,e.addComposite=t.addComposite,e.addBody=t.addBody,e.addConstraint=t.addConstraint,se}(),e.Engine.run=e.Runner.run,e.Common.deprecated(e.Engine,"run","Engine.run ➤ use Matter.Runner.run(engine) instead"),ue.exports}();return n(Te)});
+
+window.__BOOT.stage = 'matter-ok';
+</script>
+<script>
+window.__BOOT.stage = 'physics-host';
+/**
+ * physics_host.mjs – P0 desktop-pet rigid-body physics (Matter.js).
+ *
+ * Scope (P0): physics EPISODES only. The pet floats exactly where placed —
+ * every existing behaviour is preserved. A fast drag-release ("throw") starts
+ * a gravity episode: the window arcs, bounces off the work-area floor and
+ * settles; the body then falls asleep and the episode ends. Slow releases
+ * (placements) never start an episode.
+ *
+ * Motion arbiter — a single writer of window position at any moment:
+ *   user drag  >  physics episode  >  random-move tween
+ * The random-move tween in renderer.mjs yields while `ownsMotion()` is true,
+ * exactly like it already yields while `interactionManager.isDragging()`.
+ *
+ * All window movement goes through the window:move IPC (`win.move`), never a
+ * direct setPosition — main repositions the toast/bubble windows inline on
+ * every window:move, so they stay glued to the pet during the whole arc.
+ *
+ * The vendored Matter.js is the upstream release build. Runtime guards below
+ * mirror the fixes proven in the layered test suite (matter-js-fixes.patch):
+ *   F5 – reset() zeroes `sleepCounter` before Composite.clear so cached
+ *        collision pairs are released instead of leaking forever;
+ *   F3 – freezing is done by not stepping the engine, never via
+ *        `body.timeScale = 0` (which NaNs velocity in the release build);
+ *   L2 – throw speed is capped below the discrete-tunneling threshold.
+ *
+ * Kill switch: set `window.__PET_PHYSICS_DISABLED = true` before init, or any
+ * init error — the host stays inert and the pet behaves exactly as before.
+ */
+
+/** Window / body footprint. Body centre maps to window centre 1:1. */
+const PET_W = 200;
+const PET_H = 200;
+
+/** Max throw speed in px per 16.67 ms step — safely below tunneling. */
+const MAX_THROW_SPEED = 30;
+
+/** Releases slower than this (px per ms) count as placements, not throws. */
+const THROW_MIN_SPEED = 0.45;
+
+const WALL_THICKNESS = 140;
+
+/**
+ * Turn recent mouse samples into a capped Matter velocity (px per step).
+ *
+ * @param {{x:number, y:number, t:number}[]} samples – screen coords, oldest first
+ * @param {{pxPerStep?:number, maxSpeed?:number, minSpeed?:number}} [opts]
+ * @returns {{x:number, y:number}|null} null → treat as a placement
+ */
+function computeThrowVelocity(samples, opts = {}) {
+  const pxPerStep = (opts.pxPerStep == null ? (1000 / 60) : opts.pxPerStep);
+  const maxSpeed = (opts.maxSpeed == null ? MAX_THROW_SPEED : opts.maxSpeed);
+  const minSpeed = (opts.minSpeed == null ? THROW_MIN_SPEED : opts.minSpeed);
+  if (!Array.isArray(samples) || samples.length < 2) return null;
+
+  const b = samples[samples.length - 1];
+  const a = samples[Math.max(0, samples.length - 5)];
+  const dt = b.t - a.t;
+  if (!(dt > 0)) return null;
+
+  const vx = ((b.x - a.x) / dt) * pxPerStep;
+  const vy = ((b.y - a.y) / dt) * pxPerStep;
+  const speed = Math.hypot(vx, vy);
+  if (speed < minSpeed * pxPerStep) return null;
+
+  const scale = Math.min(speed, maxSpeed) / speed;
+  return { x: vx * scale, y: vy * scale };
+}
+
+/**
+ * Map a body centre to the OS window top-left corner.
+ * (Body is PET_W×PET_H and rotation-free, so centre == window centre.)
+ */
+function bodyCenterToWindowTopLeft(x, y, w = PET_W, h = PET_H) {
+  return { x: Math.round(x - w / 2), y: Math.round(y - h / 2) };
+}
+
+class PhysicsHost {
+  /**
+   * @param {object} opts
+   * @param {object} opts.win – window.electronAPI.win (move/getBounds)
+   * @param {object} [opts.Matter] – Matter global (injected in tests)
+   * @param {object} [opts.screenOverride] – work area for headless tests
+   * @param {boolean} [opts.autoRun=true] – run the rAF Runner (off in tests)
+   * @param {(vel:{x:number,y:number})=>void} [opts.onEpisodeStart]
+   * @param {()=>void} [opts.onSleep]
+   * @param {()=>void} [opts.onWake] – fired when the pet is woken up (grab)
+   */
+  constructor(opts = {}) {
+    this.win = opts.win || null;
+    this.M = opts.Matter || (typeof window !== 'undefined' ? window.Matter : null);
+    this._screenOverride = opts.screenOverride || null;
+    this._autoRun = opts.autoRun !== false;
+    this.onEpisodeStart = opts.onEpisodeStart || (() => {});
+    this.onSleep = opts.onSleep || (() => {});
+    this.onWake = opts.onWake || (() => {});
+
+    const killed = typeof window !== 'undefined' && window.__PET_PHYSICS_DISABLED === true;
+    this.enabled = Boolean(this.M && this.win) && !killed;
+
+    /** 'idle' = pet floats where placed; 'flight' = physics owns the window. */
+    this._phase = 'idle';
+    /** True while the user drags — drag always wins the arbiter. */
+    this._suspended = false;
+    /** True while a getBounds round-trip is re-syncing the body. */
+    this._syncing = false;
+    /** P1 config tuning: throw speed multiplier (1 = P0 behaviour). */
+    this._throwScale = 1;
+    /** P1 config kill switch: physics.enabled === false in config.json. */
+    this._configOff = false;
+
+    this.engine = null;
+    this.body = null;
+    this._walls = [];
+    this._runner = null;
+    /** P3: true while the rAF Runner is parked (idle CPU ≈ 0). */
+    this._paused = false;
+    /** P3: timer that parks the runner once the pet has been asleep for a while. */
+    this._autoPauseTimer = null;
+    /** P2 ballistic hop state: { winX, winY, steps, total, friction } */
+    this._hop = null;
+  }
+
+  /** Boot the engine, walls and pet body. Returns true when physics is live. */
+  start() {
+    if (!this.enabled) return false;
+    try {
+      const M = this.M;
+      this.engine = M.Engine.create({
+        enableSleeping: true,
+        positionIterations: 8,
+        velocityIterations: 6,
+      });
+      this.engine.gravity.y = 1;
+      this.engine.gravity.scale = 0.0009;
+
+      M.Events.on(this.engine, 'afterUpdate', () => this._afterUpdate());
+
+      this._rebuildScene();
+
+      if (this._autoRun && typeof requestAnimationFrame === 'function') {
+        this._runner = M.Runner.create();
+        M.Runner.run(this._runner, this.engine);
+      }
+      return true;
+    } catch (err) {
+      console.warn('[PhysicsHost] start failed, physics disabled:', err);
+      this.enabled = false;
+      return false;
+    }
+  }
+
+  destroy() {
+    if (this._runner && this.M) {
+      try { this.M.Runner.stop(this._runner); } catch (_) { /* noop */ }
+    }
+    this._runner = null;
+    this.engine = null;
+    this.body = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Scene lifecycle (F5-guarded)
+  // -------------------------------------------------------------------------
+
+  /** Tear down and rebuild walls + pet body at the work-area centre. */
+  reset() {
+    if (!this.engine) return;
+    const M = this.M;
+    const world = this.engine.world;
+
+    // F5 guard (mirrors the patched Composite.clear): reset sleepCounter so
+    // cached collision pairs are released on the next update instead of
+    // being retained forever.
+    for (const b of world.bodies) b.sleepCounter = 0;
+    // Full clear (keepStatic=false): walls are rebuilt below from the current
+    // work area, so keeping the old ones would leave duplicates.
+    M.Composite.clear(world, false);
+
+    this._walls = [];
+    this.body = null;
+    this._phase = 'idle';
+    this._rebuildScene();
+  }
+
+  _rebuildScene() {
+    const M = this.M;
+    const wa = this._workArea();
+    const T = WALL_THICKNESS;
+    const cx = wa.left + wa.width / 2;
+    const cy = wa.top + wa.height / 2;
+
+    const wall = (x, y, w, h) => M.Bodies.rectangle(x, y, w, h, {
+      isStatic: true,
+      friction: 0.4,
+      restitution: 0.25,
+      render: { visible: false },
+    });
+
+    this._walls = [
+      wall(cx, wa.top + wa.height + T / 2, wa.width + 4 * T, T), // floor
+      wall(cx, wa.top - T / 2, wa.width + 4 * T, T),             // ceiling
+      wall(wa.left - T / 2, cy, T, wa.height + 4 * T),           // left
+      wall(wa.left + wa.width + T / 2, cy, T, wa.height + 4 * T) // right
+    ];
+
+    this.body = M.Bodies.rectangle(cx, cy, PET_W, PET_H, {
+      label: 'pet',
+      chamfer: { radius: 46 },
+      friction: 0.35,
+      frictionAir: 0.014,
+      restitution: 0.42,
+      sleepThreshold: 45,
+      render: { visible: false },
+    });
+    // The OS window cannot rotate — pin the body's rotation.
+    M.Body.setInertia(this.body, Infinity);
+
+    M.Events.on(this.body, 'sleepStart', () => {
+      if (this._phase === 'flight') {
+        this._phase = 'idle';
+        try { this.onSleep(); } catch (_) { /* listener error is not ours */ }
+      }
+      // P3: park the runner once the pet has been asleep for a moment — an
+      // idle pet must cost (almost) nothing.
+      this._scheduleAutoPause();
+    });
+
+    M.Composite.add(this.engine.world, this._walls.concat([this.body]));
+  }
+
+  _workArea() {
+    const s = this._screenOverride
+      || (typeof window !== 'undefined' ? window.screen : null)
+      || {};
+    return {
+      left: (s.availLeft == null ? 0 : s.availLeft),
+      top: (s.availTop == null ? 0 : s.availTop),
+      width: (s.availWidth == null ? 1920 : s.availWidth),
+      height: (s.availHeight == null ? 1040 : s.availHeight),
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Arbiter API (called from interaction.mjs / renderer.mjs)
+  // -------------------------------------------------------------------------
+
+  /** True while a throw episode owns window movement (tween must yield). */
+  ownsMotion() {
+    return this.enabled && this._phase === 'flight' && !this._suspended;
+  }
+
+  // -------------------------------------------------------------------------
+  // P3: idle parking — a sleeping pet must not burn a 60fps Runner
+  // -------------------------------------------------------------------------
+
+  /** True while the engine Runner is parked. */
+  get paused() { return this._paused; }
+
+  /** Park the Runner: the engine stops stepping entirely (idle CPU ≈ 0). */
+  pause() {
+    this._clearAutoPause();
+    if (this._paused) return;
+    this._paused = true;
+    if (this._runner) {
+      try { this.M.Runner.stop(this._runner); } catch (_) { /* noop */ }
+    }
+  }
+
+  /** Wake the Runner back up (user interaction or a new episode). */
+  resume() {
+    this._clearAutoPause();
+    if (!this._paused) return;
+    this._paused = false;
+    if (this._runner && this.engine) {
+      try { this.M.Runner.run(this._runner, this.engine); } catch (_) { /* noop */ }
+    }
+  }
+
+  /** Park the runner shortly after the pet falls asleep. */
+  _scheduleAutoPause(delayMs = 1500) {
+    this._clearAutoPause();
+    if (!this._runner) return; // headless mode — nothing to park
+    this._autoPauseTimer = setTimeout(() => {
+      this._autoPauseTimer = null;
+      if (this._phase === 'idle' && !this._suspended) this.pause();
+    }, delayMs);
+  }
+
+  _clearAutoPause() {
+    if (this._autoPauseTimer) {
+      clearTimeout(this._autoPauseTimer);
+      this._autoPauseTimer = null;
+    }
+  }
+
+  /**
+   * P1: apply the config.json `physics` block (boot + hot-reload).
+   *   enabled: false   → end any episode and refuse new ones (config kill switch)
+   *   throw_power: 0.5–2 → release-velocity multiplier (capped at MAX_THROW_SPEED)
+   *   gravity: 0–3     → gravity scale multiplier (1 = P0 behaviour)
+   */
+  applyConfig(cfg) {
+    cfg = cfg || {};
+    if (typeof cfg.throw_power === 'number' && cfg.throw_power > 0) {
+      this._throwScale = Math.min(cfg.throw_power, 2);
+    }
+    if (this.engine && typeof cfg.gravity === 'number' && cfg.gravity >= 0) {
+      this.engine.gravity.scale = 0.0009 * Math.min(cfg.gravity, 3);
+    }
+    if (cfg.enabled === false) {
+      this._configOff = true;
+      this.grab(); // end any episode; grab() resets phase and suspends writes
+    } else if (cfg.enabled === true) {
+      this._configOff = false;
+    }
+  }
+
+  /** User grabbed the pet: physics steps aside immediately (drag wins). */
+  grab() {
+    if (!this.enabled) return;
+    this.resume();
+    this._suspended = true;
+    this._phase = 'idle';
+    this._endHop(false); // user grabbed it — abort the hop without snapping
+    if (this.body && this.engine) {
+      const M = this.M;
+      M.Sleeping.set(this.body, false);
+      M.Body.setVelocity(this.body, { x: 0, y: 0 });
+      M.Body.setAngularVelocity(this.body, 0);
+      try { this.onWake(); } catch (_) { /* listener error is not ours */ }
+    }
+  }
+
+  /**
+   * P2: move the pet to a window position with a real ballistic hop.
+   *
+   * The trajectory is solved in Matter's units (velocity = px per step) so the
+   * pet lands exactly on the requested window position. Air friction is
+   * suspended for the hop (it would break the analytic solve) and restored
+   * on landing.
+   *
+   * @param {number} winX – target window left
+   * @param {number} winY – target window top
+   * @returns {boolean} true when the hop was accepted (caller should NOT tween)
+   */
+  hopTo(winX, winY) {
+    if (!this.enabled || this._configOff || !this.engine || !this.body) return false;
+    if (this._phase === 'flight') return false; // already flying — let it land
+    if (typeof winX !== 'number' || typeof winY !== 'number') return false;
+
+    this.resume();
+    this._phase = 'flight';
+    this._suspended = false;
+
+    this._syncBodyFromWindow(() => {
+      if (this._phase !== 'flight') return;
+      const M = this.M;
+      const p0 = this.body.position;
+      const dx = (winX + PET_W / 2) - p0.x;
+      const dy = (winY + PET_H / 2) - p0.y;
+
+      const dt = 1000 / 60;
+      const g = Math.max(1e-4, this.engine.gravity.y * this.engine.gravity.scale * dt * dt);
+      const maxRise = 140; // keep the apex clear of the ceiling wall
+
+      let steps = Math.round(Math.sqrt(dx * dx + dy * dy) / 12);
+      steps = Math.max(18, Math.min(90, steps));
+      let vy = (dy - 0.5 * g * steps * steps) / steps;
+
+      // Shorten the hop until the apex stays under the ceiling.
+      for (let i = 0; i < 6 && vy < 0; i++) {
+        const rise = (vy * vy) / (2 * g);
+        if (rise <= maxRise) break;
+        steps = Math.max(12, Math.round(steps * 0.85));
+        vy = (dy - 0.5 * g * steps * steps) / steps;
+      }
+
+      const vx = dx / steps;
+      M.Sleeping.set(this.body, false);
+      M.Body.setVelocity(this.body, { x: vx, y: vy });
+
+      // Air friction would decay the analytic velocity — suspend it.
+      this._hop = {
+        winX: Math.round(winX),
+        winY: Math.round(winY),
+        steps: 0,
+        total: steps,
+        friction: this.body.frictionAir,
+      };
+      this.body.frictionAir = 0;
+    });
+
+    return true;
+  }
+
+  /**
+   * Finish a hop: restore friction, snap to the exact target, end the episode.
+   * @param {boolean} [snap=true] – false aborts the hop where it is (user grab)
+   */
+  _endHop(snap = true) {
+    if (!this._hop) return;
+    const hop = this._hop;
+    this._hop = null;
+    if (this.body) this.body.frictionAir = hop.friction;
+    if (snap && this.win && typeof this.win.move === 'function') {
+      try { this.win.move(hop.winX, hop.winY); } catch (_) { /* noop */ }
+    }
+    if (this.body && this.engine) {
+      this.M.Body.setVelocity(this.body, { x: 0, y: 0 });
+    }
+    this._phase = 'idle';
+  }
+
+  /**
+   * Drag ended. Fast release → throw episode; slow release → placement
+   * (pet floats where placed, exactly the legacy behaviour).
+   *
+   * @param {{x:number,y:number,t:number}[]} samples – mousemove samples
+   * @returns {{x:number,y:number}|null} the applied velocity, or null
+   */
+  throwFromDrag(samples) {
+    if (!this.enabled || this._configOff) return null;
+    const vel = computeThrowVelocity(samples);
+    this._suspended = false;
+    if (!vel) return null;
+
+    this.resume();
+    this._phase = 'flight';
+    this._syncBodyFromWindow(() => {
+      if (this._phase !== 'flight') return; // user grabbed it mid-sync
+      const M = this.M;
+      M.Sleeping.set(this.body, false);
+      // P1: apply the throw_power multiplier, but never exceed the
+      // discrete-tunneling safety cap (L2 finding).
+      var v = { x: vel.x * this._throwScale, y: vel.y * this._throwScale };
+      var speed = Math.sqrt(v.x * v.x + v.y * v.y);
+      if (speed > MAX_THROW_SPEED) {
+        v.x = v.x / speed * MAX_THROW_SPEED;
+        v.y = v.y / speed * MAX_THROW_SPEED;
+      }
+      M.Body.setVelocity(this.body, v);
+      try { this.onEpisodeStart(v); } catch (_) { /* listener error is not ours */ }
+    });
+    return vel;
+  }
+
+  /** Diagnostics for logging / future status UI. */
+  stats() {
+    if (!this.engine) return { phase: 'disabled' };
+    let sleeping = 0;
+    for (const b of this.engine.world.bodies) if (b.isSleeping) sleeping++;
+    return {
+      phase: this._phase,
+      bodies: this.engine.world.bodies.length,
+      pairs: this.engine.pairs.list.length,
+      sleeping,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------------
+
+  _syncBodyFromWindow(onDone) {
+    const finish = () => {
+      this._syncing = false;
+      if (onDone) onDone();
+    };
+    if (!this.win || typeof this.win.getBounds !== 'function' || !this.body) {
+      finish();
+      return;
+    }
+    this._syncing = true;
+    this.win.getBounds().then((b) => {
+      if (b && this.body && this.engine) {
+        const M = this.M;
+        M.Body.setPosition(this.body, { x: b.x + b.width / 2, y: b.y + b.height / 2 });
+        M.Body.setVelocity(this.body, { x: 0, y: 0 });
+        M.Sleeping.set(this.body, false);
+      }
+      finish();
+    }).catch(() => {
+      this._phase = 'idle';
+      finish();
+    });
+  }
+
+  _afterUpdate() {
+    if (!this.enabled || this._phase !== 'flight') return;
+    if (this._suspended || this._syncing) return;
+    if (!this.body || !this.win || typeof this.win.move !== 'function') return;
+
+    // P2 hop: count the flight and snap to the exact target on landing.
+    if (this._hop) {
+      this._hop.steps++;
+      if (this._hop.steps >= this._hop.total) {
+        this._endHop();
+        return;
+      }
+    }
+
+    const topLeft = bodyCenterToWindowTopLeft(this.body.position.x, this.body.position.y);
+    try {
+      this.win.move(topLeft.x, topLeft.y);
+    } catch (err) {
+      console.debug('[PhysicsHost] win.move failed, ending episode:', err);
+      this._phase = 'idle';
+    }
+  }
+
+  /** Headless stepping for tests (the rAF Runner is off there). */
+  update(dt) {
+    if (this.engine) this.M.Engine.update(this.engine, dt);
+  }
+}
+
+window.__BOOT.stage = 'physics-host-ok';
+</script>
+<script>
+(function () {
+  'use strict';
+  window.__BOOT.stage = 'harness';
+
+  // If the engine or the host module failed to load (or the TEMPLATE file was
+  // opened instead of the assembled page), say so loudly instead of dying.
+  if (typeof PhysicsHost === 'undefined') {
+    var bb = document.getElementById('bootBanner');
+    bb.style.display = 'block';
+    bb.textContent = typeof window.Matter === 'undefined'
+      ? '⚠ Matter 引擎未載入——請確認打開的是組裝後的 pet-physics-test.html（不是 .template.html 模板文件）。'
+      : '⚠ PhysicsHost 未載入——請確認打開的是組裝後的 pet-physics-test.html（不是 .template.html 模板文件）。';
+    return;
+  }
+
+  // =========================================================================
+  // Simulated desktop + pet window (the "OS window" this page moves around)
+  // =========================================================================
+  var AREA = { availLeft: 0, availTop: 0, availWidth: 1000, availHeight: 480 };
+  var desktop = document.getElementById('desktop');
+  var petWindow = document.getElementById('petWindow');
+  var petFace = document.getElementById('pet');
+
+  var simWin = {
+    moves: 0,
+    x: 120, y: 80,
+    getBounds: function () {
+      return Promise.resolve({ x: this.x, y: this.y, width: 200, height: 200 });
+    },
+    move: function (x, y) {
+      this.moves++;
+      // Clamp to the test frame — the pet window can never leave the desktop.
+      this.x = Math.round(Math.min(Math.max(x, 0), AREA.availWidth - 200));
+      this.y = Math.round(Math.min(Math.max(y, 0), AREA.availHeight - 200));
+      petWindow.style.left = this.x + 'px';
+      petWindow.style.top = this.y + 'px';
+      // P3-①: the pet is a static proxy body in the desktop-toy world — keep
+      // it glued on EVERY move. (D3: a push that arrives late leaves the
+      // proxy stuck on a stale coordinate forever.)
+      if (typeof toyWorld !== 'undefined' && toyWorld) {
+        toyWorld.setPetBounds({ x: this.x, y: this.y, width: 200, height: 200 });
+      }
+    }
+  };
+
+  // =========================================================================
+  // Live host (manual play) — real PhysicsHost logic against simWin
+  // =========================================================================
+  var live = new PhysicsHost({
+    win: simWin,
+    Matter: window.Matter,
+    screenOverride: AREA,
+    autoRun: true,
+    onEpisodeStart: function () { petFace.classList.remove('sleeping'); },
+    onSleep: function () { petFace.classList.add('sleeping'); }
+  });
+  live.start();
+
+  // =========================================================================
+  // Drag semantics — verbatim from interaction.mjs (fixed clickPos/clickBounds)
+  // =========================================================================
+  var clickPos = null, clickBounds = null, moveSamples = [];
+
+  petWindow.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    clickPos = { x: e.screenX, y: e.screenY };
+    clickBounds = { x: simWin.x, y: simWin.y };
+    moveSamples = [];
+    petFace.classList.remove('sleeping');
+    live.grab();
+  });
+
+  window.addEventListener('mousemove', function (e) {
+    if (!clickPos) return;
+    var dx = e.screenX - clickPos.x, dy = e.screenY - clickPos.y;
+    simWin.move(clickBounds.x + dx, clickBounds.y + dy);
+    moveSamples.push({ x: e.screenX, y: e.screenY, t: performance.now() });
+    if (moveSamples.length > 8) moveSamples.shift();
+  });
+
+  window.addEventListener('mouseup', function (e) {
+    if (!clickPos) return;
+    clickPos = null; clickBounds = null;
+    moveSamples.push({ x: e.screenX, y: e.screenY, t: performance.now() });
+    live.throwFromDrag(jitterSamples(moveSamples));
+  });
+
+  // Throw randomness: organic ±18% speed and ±8° angle jitter on the release
+  // velocity (applied to the sample trail before PhysicsHost computes it).
+  function jitterSamples(samples) {
+    if (!samples || samples.length < 2) return samples;
+    var out = samples.map(function (s) { return { x: s.x, y: s.y, t: s.t }; });
+    var n = out.length;
+    var a = out[n - 2], b = out[n - 1];
+    var dx = b.x - a.x, dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return out;
+    var ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.28;   // ±8°
+    var len = Math.hypot(dx, dy) * (0.82 + Math.random() * 0.36);  // ±18%
+    out[n - 1] = { x: a.x + Math.cos(ang) * len, y: a.y + Math.sin(ang) * len, t: b.t };
+    return out;
+  }
+
+  // =========================================================================
+  // Random drift — renderer.mjs tween semantics incl. arbiter yields
+  // =========================================================================
+  var driftRaf = 0, driftActive = false;
+
+  function startDrift() {
+    var toX = 40 + Math.random() * (AREA.availWidth - 280);
+    var toY = 40 + Math.random() * (AREA.availHeight - 260);
+    var fromX = simWin.x, fromY = simWin.y, t0 = performance.now();
+    driftActive = true;
+    if (driftRaf) cancelAnimationFrame(driftRaf);
+
+    function step() {
+      if (!driftActive) return;
+      if (clickPos || live.ownsMotion()) {          // yield to drag / physics
+        driftActive = false; driftRaf = 0; return;
+      }
+      var t = Math.min(1, (performance.now() - t0) / 1200);
+      var e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      simWin.move(fromX + (toX - fromX) * e, fromY + (toY - fromY) * e);
+      if (t < 1) { driftRaf = requestAnimationFrame(step); }
+      else { driftActive = false; driftRaf = 0; }
+    }
+    step();
+  }
+
+  // =========================================================================
+  // P3-① Desktop toy world — page-internal twin of the Electron overlay.
+  //
+  // Two design rules come straight from defects found on the real app:
+  //   D3  the pet proxy is PULLED from the pet's current bounds at start and
+  //       on every move — a pushed coordinate that arrives late is stale forever.
+  //   D4  low restitution on the floor/walls and on the toys: with 0.4-0.5 the
+  //       toy behaves like a trampoline, flies off-screen and never settles.
+  //       The pet proxy keeps a high restitution so toys still bounce off it.
+  // =========================================================================
+  var TOY_LIMIT = 8;
+  var TOY_TTL_MS = 20000;
+  var TOY_GLYPHS = ['🍪', '🧁', '🍓', '🍬', '🍙', '🥨'];
+
+  function DesktopToyWorld(opts) {
+    this.M = opts.Matter;
+    this.getArea = opts.getArea;
+    this.getPetBounds = opts.getPetBounds;
+    this.onEmpty = opts.onEmpty || function () {};
+    this.limit = TOY_LIMIT;
+    this.toys = [];
+    this.seq = 0;
+    this.engine = null;
+    this.petProxy = null;
+    this.walls = [];
+    this._emptyNotified = false;
+  }
+
+  DesktopToyWorld.prototype.start = function () {
+    var M = this.M, a = this.getArea();
+    this.engine = M.Engine.create({ enableSleeping: true });
+    this.engine.gravity.y = 1;
+    this.engine.gravity.scale = 0.0012;
+
+    var wall = function (x, y, w, h) {
+      return M.Bodies.rectangle(x, y, w, h, {
+        isStatic: true, friction: 0.6, restitution: 0.05, render: { visible: false }
+      });
+    };
+    var T = 120;
+    this.walls = [
+      wall(a.x + a.width / 2, a.y + a.height + T / 2, a.width + 4 * T, T),
+      wall(a.x - T / 2, a.y + a.height / 2, T, a.height + 4 * T),
+      wall(a.x + a.width + T / 2, a.y + a.height / 2, T, a.height + 4 * T)
+    ];
+    this.petProxy = M.Bodies.rectangle(a.x + a.width / 2, a.y + a.height / 2, 200, 200, {
+      isStatic: true, friction: 0.5, restitution: 0.6, render: { visible: false }
+    });
+    M.Composite.add(this.engine.world, this.walls.concat([this.petProxy]));
+    // D3: initialise the proxy from the pet's CURRENT bounds, not a default.
+    this.setPetBounds(this.getPetBounds());
+    return this;
+  };
+
+  DesktopToyWorld.prototype.setPetBounds = function (b) {
+    if (!this.petProxy || !b) return;
+    this.M.Body.setPosition(this.petProxy, {
+      x: b.x + b.width / 2,
+      y: b.y + b.height / 2
+    });
+  };
+
+  DesktopToyWorld.prototype.spawn = function (glyph) {
+    var M = this.M, a = this.getArea();
+    while (this.toys.length >= this.limit) this.recycle(this.toys[0]);
+    var r = 14 + Math.random() * 8;
+    var body = M.Bodies.circle(a.x + 40 + Math.random() * (a.width - 80), a.y - 30, r, {
+      restitution: 0.15, friction: 0.45, frictionAir: 0.008, density: 0.002,
+      sleepThreshold: 45, render: { visible: false }
+    });
+    M.Body.setVelocity(body, { x: (Math.random() - 0.5) * 4, y: 2 });
+    M.Composite.add(this.engine.world, body);
+    var toy = {
+      id: ++this.seq,
+      body: body,
+      glyph: glyph || TOY_GLYPHS[Math.floor(Math.random() * TOY_GLYPHS.length)],
+      born: Date.now(),
+      el: null
+    };
+    this.toys.push(toy);
+    this._emptyNotified = false;
+    return toy;
+  };
+
+  DesktopToyWorld.prototype.recycle = function (toy) {
+    var idx = this.toys.indexOf(toy);
+    if (idx === -1) return;
+    this.toys.splice(idx, 1);
+    if (this.engine) this.M.Composite.remove(this.engine.world, toy.body);
+    if (toy.el && toy.el.parentNode) toy.el.parentNode.removeChild(toy.el);
+    if (this.toys.length === 0 && !this._emptyNotified) {
+      this._emptyNotified = true;
+      try { this.onEmpty(); } catch (e) { /* noop */ }
+    }
+  };
+
+  DesktopToyWorld.prototype.step = function (dt) {
+    if (!this.engine) return;
+    this.M.Engine.update(this.engine, dt);
+    var now = Date.now();
+    var list = this.toys.slice();
+    for (var i = 0; i < list.length; i++) {
+      if (now - list[i].born > TOY_TTL_MS) this.recycle(list[i]);
+    }
+    for (var j = 0; j < this.toys.length; j++) {
+      var t = this.toys[j];
+      if (!t.el) continue;
+      t.el.style.left = (t.body.position.x - 14) + 'px';
+      t.el.style.top = (t.body.position.y - 14) + 'px';
+      t.el.style.transform = 'rotate(' + t.body.angle + 'rad)';
+    }
+  };
+
+  // Live desktop-toy world (driven by the page's own rAF loop).
+  var toyLayer = document.getElementById('toysLayer');
+  var toyWorld = new DesktopToyWorld({
+    Matter: window.Matter,
+    getArea: function () { return { x: 0, y: 0, width: AREA.availWidth, height: AREA.availHeight }; },
+    getPetBounds: function () { return { x: simWin.x, y: simWin.y, width: 200, height: 200 }; },
+    onEmpty: function () { /* overlay closed — nothing left to draw */ }
+  });
+  toyWorld.start();
+
+  function spawnDesktopToy() {
+    var toy = toyWorld.spawn();
+    var el = document.createElement('div');
+    el.className = 'toy';
+    el.textContent = toy.glyph;
+    toyLayer.appendChild(el);
+    toy.el = el;
+    return toy;
+  }
+
+  var toyRaf = 0, toyLast = performance.now();
+  function toyFrame(now) {
+    var dt = Math.min(64, now - toyLast);
+    toyLast = now;
+    toyWorld.step(dt);
+    toyRaf = requestAnimationFrame(toyFrame);
+  }
+  toyRaf = requestAnimationFrame(toyFrame);
+
+  document.getElementById('btnFeed').addEventListener('click', spawnDesktopToy);
+  document.getElementById('btnClearToys').addEventListener('click', function () {
+    var list = toyWorld.toys.slice();
+    for (var i = 0; i < list.length; i++) toyWorld.recycle(list[i]);
+  });
+
+  // =========================================================================
+  // Stats
+  // =========================================================================
+  setInterval(function () {
+    var s = live.stats();
+    var ph = document.getElementById('stPhase');
+    ph.textContent = s.phase;
+    ph.className = s.phase === 'flight' ? 'flight' : '';
+    document.getElementById('stOwns').textContent = String(live.ownsMotion());
+    document.getElementById('stBodies').textContent = s.bodies;
+    document.getElementById('stPairs').textContent = s.pairs;
+    document.getElementById('stSleep').textContent = s.sleeping;
+    document.getElementById('stMoves').textContent = simWin.moves;
+    document.getElementById('stToys').textContent = String(toyWorld.toys.length);
+    document.getElementById('stOverlay').textContent = toyWorld.toys.length > 0 ? 'open' : 'closed';
+  }, 200);
+
+  // =========================================================================
+  // Automated tests — same assertions as tests/physics_host.test.js
+  // =========================================================================
+  function mockWin(bounds) {
+    return {
+      moves: [], bounds: bounds,
+      getBounds: function () { return Promise.resolve(this.bounds); },
+      move: function (x, y) {
+        this.moves.push({ x: x, y: y });
+        this.bounds = { x: x, y: y, width: this.bounds.width, height: this.bounds.height };
+      }
+    };
+  }
+
+  // throwFromDrag()/start() sync the body through a promise (getBounds), so every
+  // assertion that reads body state or steps the engine has to let one macrotask
+  // pass first — the jest suite does exactly this with `await flush()`.
+  var flush = function () { return new Promise(function (r) { setTimeout(r, 0); }); };
+
+  function runTests() {
+    var rows = [];
+    var add = function (name, ok, detail) {
+      rows.push('<tr><td>' + name + '</td><td class="' + (ok ? 'pass">PASS' : 'fail">FAIL') +
+        '</td><td class="detail">' + detail + '</td></tr>');
+    };
+    // One assertion throwing must not blank the whole table (that is how the
+    // missing await above hid itself: the page showed "尚未執行" and a console error).
+    var guard = async function (name, fn) {
+      try { await fn(); } catch (e) { add(name, false, 'threw: ' + (e && e.message)); }
+    };
+
+    return runAll();
+
+    async function runAll() {
+
+    // T0 — environment & syntax capability report (Firefox diagnosis)
+    var feat = {};
+    try { new Function('return (() => 1)()'); feat.arrow = true; } catch (e0) { feat.arrow = false; }
+    try { new Function('return (async function(){})'); feat.async = true; } catch (e0) { feat.async = false; }
+    try { new Function('return (null ?? 1)'); feat.nullish = true; } catch (e0) { feat.nullish = false; }
+    try { new Function('return (undefined)?.x'); feat.optchain = true; } catch (e0) { feat.optchain = false; }
+    feat.flat = typeof Array.prototype.flat === 'function';
+    var missing = Object.keys(feat).filter(function (k) { return !feat[k]; });
+    add('T0 環境能力檢測（UA + 語法特性）', missing.length === 0,
+        navigator.userAgent + ' | 缺失特性: ' + (missing.length ? missing.join(',') : '無'));
+
+    // T1 — computeThrowVelocity: slow release is a placement
+    var slow = computeThrowVelocity([
+      { x: 100, y: 100, t: 0 }, { x: 102, y: 100, t: 80 }, { x: 104, y: 101, t: 160 }
+    ]);
+    add('computeThrowVelocity：慢速釋放 → null（放置）', slow === null,
+        '實測 ' + JSON.stringify(slow) + ' / 預期 null');
+
+    // T2 — computeThrowVelocity: direction preserved + speed capped
+    var fast = computeThrowVelocity([{ x: 0, y: 0, t: 0 }, { x: 200, y: 0, t: 20 }]);
+    var sp = fast ? Math.hypot(fast.x, fast.y) : -1;
+    add('computeThrowVelocity：方向保持 + 速度封頂 ' + MAX_THROW_SPEED + 'px/step',
+        !!fast && Math.abs(sp - MAX_THROW_SPEED) < 1e-6 && Math.abs(fast.y) < 1e-6,
+        '實測 ' + (fast ? sp.toFixed(3) + 'px/step' : 'null') + ' / 預期 ' + MAX_THROW_SPEED.toFixed(3));
+
+    // T3 — bodyCenterToWindowTopLeft mapping
+    var tl = bodyCenterToWindowTopLeft(300, 250);
+    add('bodyCenterToWindowTopLeft：質心→窗口左上角', tl.x === 200 && tl.y === 150,
+        '實測 (' + tl.x + ',' + tl.y + ') / 預期 (200,150)');
+
+    // T4 — placement release never starts an episode
+    await guard('放置釋放：不進入 episode、零窗口寫入', async function () {
+      var w4 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h4 = new PhysicsHost({ win: w4, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h4.start();
+      h4.throwFromDrag([{ x: 300, y: 250, t: 0 }, { x: 302, y: 250, t: 80 }]);
+      await flush();
+      for (var i4 = 0; i4 < 30; i4++) h4.update(1000 / 60);
+      add('放置釋放：不進入 episode、零窗口寫入',
+          !h4.ownsMotion() && h4.stats().phase === 'idle' && w4.moves.length === 0,
+          'phase=' + h4.stats().phase + ', moves=' + w4.moves.length);
+    });
+
+    // T5 — fast release: arc → floor landing → sleep
+    await guard('快速甩出：拋物線 → 落地 → 入睡', async function () {
+      var w5 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h5 = new PhysicsHost({ win: w5, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h5.start();
+      h5.throwFromDrag([{ x: 300, y: 250, t: 0 }, { x: 330, y: 220, t: 30 }, { x: 360, y: 200, t: 60 }]);
+      await flush();
+      for (var i5 = 0; i5 < 600; i5++) h5.update(1000 / 60);
+      if (!w5.moves.length) {
+        add('快速甩出：拋物線 → 落地 → 入睡', false,
+            '零窗口寫入——episode 沒有起來（flush 後 ownsMotion=' + h5.ownsMotion() + '）');
+        return;
+      }
+      var last = w5.moves[w5.moves.length - 1];
+      var minY = Math.min.apply(null, w5.moves.map(function (m) { return m.y; }));
+      var landed = last.y + 200;
+      add('快速甩出：拋物線 → 落地 → 入睡',
+          h5.stats().phase === 'idle' && h5.body.isSleeping &&
+          landed >= AREA.availHeight - 40 && landed <= AREA.availHeight + 10 &&
+          minY < last.y - 20 && w5.moves.length > 10,
+          '落地底邊=' + landed + 'px（預期 ≈' + AREA.availHeight + '±40），弧線峰=' + minY + 'px，寫入=' + w5.moves.length + ' 次');
+    });
+
+    // T6 — grab() suspends physics instantly
+    await guard('grab() 搶占：立即懸停、零窗口寫入', async function () {
+      var w6 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h6 = new PhysicsHost({ win: w6, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h6.start();
+      h6.throwFromDrag([{ x: 0, y: 0, t: 0 }, { x: 40, y: 0, t: 30 }]);
+      await flush();
+      var flying = h6.ownsMotion();
+      h6.grab();
+      var before = w6.moves.length;
+      for (var j = 0; j < 30; j++) h6.update(1000 / 60);
+      add('grab() 搶占：立即懸停、零窗口寫入',
+          flying && !h6.ownsMotion() && w6.moves.length === before,
+          '抓起前 ownsMotion=' + flying + '，抓起後=' + h6.ownsMotion() +
+          ', 新增寫入=' + (w6.moves.length - before));
+    });
+
+    // T7 — F5 guard: reset drains the pair cache
+    await guard('F5 護欄：reset() 後 pairs 緩存歸零', async function () {
+      var w7 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h7 = new PhysicsHost({ win: w7, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h7.start();
+      h7.throwFromDrag([{ x: 0, y: 0, t: 0 }, { x: 40, y: 20, t: 30 }]);
+      await flush();
+      for (var k = 0; k < 600; k++) h7.update(1000 / 60);
+      var pairsBefore = h7.engine.pairs.list.length;
+      h7.reset();
+      h7.update(1000 / 60);
+      add('F5 護欄：reset() 後 pairs 緩存歸零',
+          h7.engine.pairs.list.length === 0 &&
+          Object.keys(h7.engine.pairs.table).length === 0 &&
+          h7.engine.world.bodies.length === 5,
+          'reset 前 pairs=' + pairsBefore + '，後=' + h7.engine.pairs.list.length +
+          '，場景剛體=' + h7.engine.world.bodies.length + '（預期 4 牆 + 1 寵物）');
+    });
+
+    // T8 — drag clamp: the pet window can never leave the test frame
+    simWin.move(-50, -50);
+    var clamped1 = { x: simWin.x, y: simWin.y };
+    simWin.move(9999, 9999);
+    var clamped2 = { x: simWin.x, y: simWin.y };
+    simWin.move(120, 80);
+    add('T8 拖拽夾緊：寵物窗口不出測試框',
+        clamped1.x === 0 && clamped1.y === 0 &&
+        clamped2.x === AREA.availWidth - 200 && clamped2.y === AREA.availHeight - 200,
+        '(-50,-50)→(' + clamped1.x + ',' + clamped1.y + ')，(9999,9999)→(' + clamped2.x + ',' + clamped2.y + ')');
+
+    // T9 — throw randomness: speed ±18%, angle ±8°, never identical
+    var base = [{ x: 0, y: 0, t: 0 }, { x: 30, y: 0, t: 30 }];
+    var seen = {};
+    var okJitter = true;
+    for (var q = 0; q < 24; q++) {
+      var js = jitterSamples(base);
+      var ddx = js[1].x - js[0].x, ddy = js[1].y - js[0].y;
+      var speed = Math.hypot(ddx, ddy), ang = Math.abs(Math.atan2(ddy, ddx));
+      if (speed < 30 * 0.82 - 0.01 || speed > 30 * 1.18 + 0.01 || ang > 0.15) okJitter = false;
+      seen[Math.round(speed * 10) + '/' + Math.round(ang * 100)] = true;
+    }
+    add('T9 甩出隨機性：速度 ±18%、角度 ±8°（24 次取樣）',
+        okJitter && Object.keys(seen).length > 3,
+        '去重後 ' + Object.keys(seen).length + ' 種軌跡（預期 > 3），邊界 ' + (okJitter ? '合規' : '越界'));
+
+    // ---------------------------------------------------------------------
+    // P3-① 桌面玩具（desktop toys）—— 與 windows_pet 的 p3_desktop_toys
+    // 測試同構，並加上兩筆實機缺陷的回歸斷言（D3 / D4）。
+    // ---------------------------------------------------------------------
+
+    function makeToyWorld() {
+      var w = new DesktopToyWorld({
+        Matter: window.Matter,
+        getArea: function () { return { x: 0, y: 0, width: AREA.availWidth, height: AREA.availHeight }; },
+        getPetBounds: function () { return { x: 200, y: 100, width: 200, height: 200 }; },
+        onEmpty: function () { w._emptied = true; }
+      });
+      w._emptied = false;
+      w.start();
+      return w;
+    }
+
+    // T10 — a toy falls under gravity
+    await guard('T10 桌面玩具：受重力掉落', async function () {
+      var w = makeToyWorld();
+      var toy = w.spawn('🍪');
+      var y0 = toy.body.position.y;
+      for (var i = 0; i < 10; i++) w.step(16);
+      add('T10 桌面玩具：受重力掉落', toy.body.position.y > y0,
+          '實測 y ' + y0.toFixed(1) + ' → ' + toy.body.position.y.toFixed(1) + '（預期下降）');
+    });
+
+    // T11 — D4 regression: the toy must SETTLE on the floor, not trampoline
+    //      The meaningful metric is the bounce height *after* the first
+    //      impact: with restitution 0.4-0.5 the toy flies hundreds of pixels
+    //      back up (a trampoline), with 0.05 it barely hops.
+    await guard('T11 桌面玩具：停在地板（低回彈，不彈飛）', async function () {
+      var w = makeToyWorld();
+      var toy = w.spawn('🍓');
+      // Park the toy far from the pet proxy (a 200x200 static platform in the
+      // middle of the desktop) — otherwise the toy may legitimately rest ON
+      // the pet instead of reaching the floor.
+      window.Matter.Body.setPosition(toy.body, { x: 120, y: -30 });
+      var floorY = AREA.availHeight;
+      var touched = false, minAfter = 1e9, y = toy.body.position.y;
+      for (var i = 0; i < 600; i++) {
+        w.step(16);
+        y = toy.body.position.y;
+        if (!touched && y > floorY - toy.body.circleRadius - 3) touched = true;
+        if (touched && y < minAfter) minAfter = y;
+      }
+      var bounce = floorY - minAfter;
+      var resting = Math.abs(y - (floorY - toy.body.circleRadius)) < 40;
+      add('T11 桌面玩具：停在地板（低回彈，不彈飛）',
+          touched && bounce < 50 && (toy.body.isSleeping || resting),
+          '觸地後最高點 y=' + minAfter.toFixed(1) + '（反彈高度 ' + bounce.toFixed(1) + 'px，預期 < 50），' +
+          '最終 y=' + y.toFixed(1) + '，休眠=' + toy.body.isSleeping);
+    });
+
+    // T12 — the toy count is capped
+    await guard('T12 桌面玩具：數量上限 8', async function () {
+      var w = makeToyWorld();
+      for (var i = 0; i < 14; i++) w.spawn();
+      add('T12 桌面玩具：數量上限 8', w.toys.length === 8,
+          '實測 ' + w.toys.length + ' / 預期 8');
+    });
+
+    // T13 — the pet proxy follows the pet window (live wiring)
+    await guard('T13 寵物 proxy 黏合寵物窗口', async function () {
+      var keep = { x: simWin.x, y: simWin.y };
+      simWin.move(400, 120);
+      // copy the numbers — Matter mutates body.position in place, so keeping
+      // the object reference would show the position *after* we move back.
+      var px = toyWorld.petProxy.position.x, py = toyWorld.petProxy.position.y;
+      var ok = Math.abs(px - 500) < 2 && Math.abs(py - 220) < 2;
+      simWin.move(keep.x, keep.y);
+      add('T13 寵物 proxy 黏合寵物窗口', ok,
+          '寵物移至 (400,120) → proxy (' + px.toFixed(1) + ',' + py.toFixed(1) + ')，預期 (500,220)');
+    });
+
+    // T14 — a toy bounces off the pet proxy
+    await guard('T14 玩具被寵物 proxy 彈開', async function () {
+      var w = makeToyWorld();
+      w.setPetBounds({ x: 300, y: 200, width: 200, height: 200 });
+      var toy = w.spawn('🥨');
+      // Move the body through Body.setPosition: writing body.position directly
+      // leaves body.bounds stale and Matter's Bounds.overlaps pre-check then
+      // reports "no collision" for visibly overlapping shapes.
+      window.Matter.Body.setPosition(toy.body, { x: 560, y: 300 });
+      window.Matter.Body.setVelocity(toy.body, { x: -8, y: 0 });
+      var bounced = false;
+      for (var i = 0; i < 60; i++) {
+        w.step(16);
+        if (toy.body.velocity.x > 0) { bounced = true; break; }
+      }
+      add('T14 玩具被寵物 proxy 彈開', bounced,
+          '實測 vx=' + toy.body.velocity.x.toFixed(2) + '（預期由負轉正）');
+    });
+
+    // T15 — TTL expiry recycles the toy and closes the overlay
+    await guard('T15 桌面玩具 TTL：到期回收並關閉 overlay', async function () {
+      var w = makeToyWorld();
+      var toy = w.spawn('🍬');
+      toy.born = Date.now() - TOY_TTL_MS - 1;
+      w.step(16);
+      add('T15 桌面玩具 TTL：到期回收並關閉 overlay',
+          w.toys.length === 0 && w._emptied === true &&
+          w.engine.world.bodies.indexOf(toy.body) === -1,
+          '剩餘玩具=' + w.toys.length + '，onEmpty 觸發=' + w._emptied);
+    });
+
+    // T16 — D3 regression: the proxy is initialised from the CURRENT pet bounds
+    await guard('T16 桌面玩具：建立時 proxy 以當下寵物座標初始化', async function () {
+      var w = new DesktopToyWorld({
+        Matter: window.Matter,
+        getArea: function () { return { x: 0, y: 0, width: AREA.availWidth, height: AREA.availHeight }; },
+        getPetBounds: function () { return { x: 600, y: 200, width: 200, height: 200 }; },
+        onEmpty: function () {}
+      });
+      w.start();
+      var p = w.petProxy.position;
+      add('T16 桌面玩具：建立時 proxy 以當下寵物座標初始化',
+          Math.abs(p.x - 700) < 2 && Math.abs(p.y - 300) < 2,
+          '實測 proxy (' + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ') / 預期 (700,300)');
+    });
+
+    document.getElementById('testBody').innerHTML = rows.join('');
+    var passCount = rows.filter(function (r) { return r.indexOf('">PASS') !== -1; }).length;
+    return passCount + '/' + rows.length;
+    }
+  }
+
+  // =========================================================================
+  // Buttons
+  // =========================================================================
+  document.getElementById('btnToss').addEventListener('click', function () {
+    petFace.classList.remove('sleeping');
+    simWin.move(300, 60);
+    live.grab();
+    live.throwFromDrag(jitterSamples([
+      { x: 0, y: 0, t: 0 },
+      { x: 26, y: -18, t: 22 },
+      { x: 52, y: -32, t: 44 }
+    ]));
+  });
+
+  document.getElementById('btnPlace').addEventListener('click', function () {
+    petFace.classList.remove('sleeping');
+    live.grab();
+    simWin.move(560, 40);
+    live.throwFromDrag([{ x: 0, y: 0, t: 0 }, { x: 1, y: 0, t: 90 }]); // slow → placement
+  });
+
+  document.getElementById('btnDrift').addEventListener('click', startDrift);
+
+  document.getElementById('btnReset').addEventListener('click', function () {
+    driftActive = false;
+    petFace.classList.remove('sleeping');
+    live.reset();
+    simWin.move(120, 80);
+  });
+
+  document.getElementById('btnRun').addEventListener('click', async function () {
+    console.log('[auto-test]', await runTests());
+  });
+
+  // Auto-run once on load
+  window.addEventListener('load', function () {
+    setTimeout(async function () { console.log('[auto-test]', await runTests()); }, 100);
+  });
+
+  window.__BOOT.stage = 'ready';
+})();
+</script>
+</body>
+</html>

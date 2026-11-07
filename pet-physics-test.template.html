@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P0/P3 桌面寵物理 · 獨立驗證頁</title>
+<style>
+  :root {
+    --paper: #f7f3ec; --ink: #2c2a27; --muted: #8a8377;
+    --accent: #f19648; --deep: #063e7b; --line: #e4ddd1;
+    --ok: #2e7d4f; --bad: #c23b2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    padding: 26px 22px 40px;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; }
+  h1 { font-family: Georgia, "Noto Serif SC", serif; font-size: 25px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 7px; line-height: 1.75; }
+
+  .desktop {
+    position: relative; margin-top: 16px; height: 480px;
+    background: linear-gradient(#eef3f7 0%, #f7f3ec 78%);
+    border: 1px solid var(--line); overflow: hidden; user-select: none;
+  }
+  .floor {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
+    background: #e4ddd1; border-top: 2px solid #c9bfae;
+    font-size: 11px; color: var(--muted); padding: 4px 10px;
+  }
+  .pet-window {
+    position: absolute; width: 200px; height: 200px; cursor: grab;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+  }
+  .pet-window:active { cursor: grabbing; }
+  /* P3-① desktop toy layer — the page-internal equivalent of the Electron
+     overlay window: toys live in desktop coordinates, the pet is a static
+     proxy body they can bounce off. */
+  .toys-layer {
+    position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+    pointer-events: none;
+  }
+  .toy {
+    position: absolute; font-size: 26px; line-height: 1;
+    width: 28px; height: 28px; text-align: center;
+    will-change: transform, left, top;
+  }
+  .pet {
+    width: 148px; height: 148px; border-radius: 46px;
+    background: #f19648; border: 3px solid #d97f35;
+    position: relative; box-shadow: 0 6px 14px rgba(44,42,39,.18);
+  }
+  .eye {
+    position: absolute; top: 44px; width: 24px; height: 30px;
+    background: #fff; border-radius: 50%;
+  }
+  .eye.l { left: 34px; } .eye.r { right: 34px; }
+  .pupil {
+    position: absolute; left: 7px; top: 10px; width: 11px; height: 13px;
+    background: #2c2a27; border-radius: 50%;
+  }
+  .mouth {
+    position: absolute; left: 50%; top: 92px; width: 44px; height: 20px;
+    border: 3px solid #b4652a; border-top: none;
+    border-radius: 0 0 26px 26px; transform: translateX(-50%);
+  }
+  .pet.sleeping .eye { height: 4px; top: 58px; background: #b4652a; }
+  .pet.sleeping .pupil { display: none; }
+  .pet.sleeping .mouth { height: 8px; border-radius: 0 0 10px 10px; }
+  .zzz {
+    position: absolute; right: -6px; top: -14px; font-size: 20px;
+    color: var(--deep); display: none; font-family: Georgia, serif;
+  }
+  .pet.sleeping .zzz { display: block; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 13px; }
+  button {
+    font: inherit; font-size: 13px; cursor: pointer; padding: 9px 15px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    transition: all .15s ease;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .pill {
+    background: #fff; border: 1px solid var(--line); padding: 7px 13px;
+    font-size: 12px; color: var(--muted);
+  }
+  .pill b { color: var(--ink); font-size: 14px; margin-left: 5px; font-variant-numeric: tabular-nums; }
+  .pill b.flight { color: var(--accent); }
+
+  .panel {
+    margin-top: 16px; background: #fff; border: 1px solid var(--line); padding: 15px 18px;
+  }
+  .panel h2 {
+    font-family: Georgia, "Noto Serif SC", serif;
+    font-size: 16px; font-weight: 600; margin-bottom: 10px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.pass { color: var(--ok); font-weight: 600; }
+  td.fail { color: var(--bad); font-weight: 600; }
+  td.detail { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .foot {
+    margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--line);
+    font-size: 11.5px; color: var(--muted); line-height: 1.9;
+  }
+  .foot code { background: #fff; border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>P0 / P3 桌面寵物理 · 獨立驗證頁</h1>
+  <p class="sub">
+    不依賴 Electron 的獨立測試程序：內嵌 <code>matter.min.js</code> 與 <code>physics_host.mjs</code>（P0 逐字副本），
+    以一個 200×200「寵物窗口」模擬 windows_pet 的運動語義。慢速拖放＝放置（原地漂浮）；快速甩出＝物理 episode（拋物線 → 地板彈跳 → 入睡）。
+    拖拽永遠優先，隨機漂移在物理飛行中自動讓位。
+    <br>
+    <b>P3-① 桌面玩具</b>：按「🍪 丟食物到桌面」会在工作區掉下食物球——玩具活在桌面座標的世界裡，寵物以 static proxy 參與碰撞，
+    所以寵物移動時會把玩具彈開；玩具上限 8、存活 20 秒，最後一顆消失時 overlay 自動關閉。
+  </p>
+
+  <div id="bootBanner" style="display:none; margin-top:12px; padding:10px 14px; background:#fdecea; border:1px solid #c23b2e; color:#c23b2e; font-size:12.5px; font-family:Consolas,monospace; word-break:break-all;"></div>
+  <noscript>
+    <div style="margin-top:12px; padding:10px 14px; background:#fdecea; border:1px solid #c23b2e; color:#c23b2e; font-size:12.5px;">
+      ⚠ JavaScript 已被禁用——這正是「所有動作沒有效果」的最常見原因。
+      請檢查：Firefox 擴充（NoScript / uBlock 嚴格模式）、about:config 的
+      <code>javascript.enabled</code>、或站點權限設定中的「停用 JavaScript」。
+    </div>
+  </noscript>
+
+  <div class="desktop" id="desktop">
+    <div class="pet-window" id="petWindow" style="left:120px; top:80px;">
+      <div class="pet" id="pet">
+        <div class="eye l"><div class="pupil"></div></div>
+        <div class="eye r"><div class="pupil"></div></div>
+        <div class="mouth"></div>
+        <div class="zzz">z Z</div>
+      </div>
+    </div>
+    <div class="floor">工作區地板（可用高度 480px，窗口底部貼地即落地）</div>
+    <div class="toys-layer" id="toysLayer"></div>
+  </div>
+
+  <div class="row">
+    <button id="btnFeed">🍪 丟食物到桌面（P3-①）</button>
+    <button id="btnClearToys">🧹 清除桌面玩具</button>
+    <button id="btnToss">🎾 快速甩出（物理 episode）</button>
+    <button id="btnPlace">🪶 放置到空中（應懸浮）</button>
+    <button id="btnDrift">🎲 隨機漂移（應讓位）</button>
+    <button id="btnReset">↻ 重置場景（F5）</button>
+    <button id="btnRun">✅ 執行自動測試</button>
+  </div>
+
+  <div class="stats">
+    <div class="pill">桌面玩具 <b id="stToys">0</b></div>
+    <div class="pill">玩具上限 <b>8</b></div>
+    <div class="pill">overlay <b id="stOverlay">closed</b></div>
+    <div class="pill">相位 <b id="stPhase">idle</b></div>
+    <div class="pill">ownsMotion <b id="stOwns">false</b></div>
+    <div class="pill">剛體 <b id="stBodies">0</b></div>
+    <div class="pill">碰撞對 <b id="stPairs">0</b></div>
+    <div class="pill">休眠 <b id="stSleep">0</b></div>
+    <div class="pill">窗口寫入 <b id="stMoves">0</b></div>
+  </div>
+
+  <div class="panel">
+    <h2>自動測試結果（與 windows_pet jest 套件同構的斷言）</h2>
+    <table>
+      <thead><tr><th style="width:320px">測試</th><th style="width:70px">結果</th><th>實測 / 預期</th></tr></thead>
+      <tbody id="testBody">
+        <tr><td colspan="3" class="detail">尚未執行——點「執行自動測試」（載入時也會自動跑一次）。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    <b>語義對照</b>　
+    <code>mousedown → grab()</code>（拖拽搶占）　
+    <code>mousemove → win.move(origin + delta)</code>（zero-drift 累積位移）　
+    <code>mouseup → throwFromDrag(samples)</code>（快＝拋出／慢＝放置）　
+    <code>afterUpdate → win.move(body.topLeft)</code>（episode 寫入）　
+    <code>sleepStart → phase=idle</code>（入睡結束 episode）。
+    　·　<code>window.__PET_PHYSICS_DISABLED = true</code> 可全域停用。
+    <br>
+    <b>P3-① 桌面玩具</b>　
+    <code>pet bounds → petProxy</code>（每次移動都拉取，避免 D3 的過期座標）　
+    <code>wall restitution 0.05 / toy 0.15</code>（低回彈，玩具會停下來；D4 的彈床回歸）　
+    <code>petProxy restitution 0.6</code>（玩具撞寵物仍會明顯彈開）。
+  </div>
+</div>
+
+<script>
+/* Boot diagnostics — installed before everything else so any later script
+   failure (including old-browser syntax errors) is visible in-page. */
+window.__BOOT = { stage: 'diag', errors: [] };
+window.addEventListener('error', function (e) {
+  var msg = (e && e.message ? e.message : String(e)) +
+    (e && e.lineno ? ' @ line ' + e.lineno : '');
+  window.__BOOT.errors.push(msg);
+  var b = document.getElementById('bootBanner');
+  if (b) { b.style.display = 'block'; b.textContent = '⚠ 啟動錯誤 [' + window.__BOOT.stage + ']：' + msg; }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  window.__BOOT.errors.push('promise: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+});
+</script>
+<script>
+window.__BOOT.stage = 'matter';
+/*__MATTER_JS__*/
+window.__BOOT.stage = 'matter-ok';
+</script>
+<script>
+window.__BOOT.stage = 'physics-host';
+/*__PHYSICS_HOST__*/
+window.__BOOT.stage = 'physics-host-ok';
+</script>
+<script>
+(function () {
+  'use strict';
+  window.__BOOT.stage = 'harness';
+
+  // If the engine or the host module failed to load (or the TEMPLATE file was
+  // opened instead of the assembled page), say so loudly instead of dying.
+  if (typeof PhysicsHost === 'undefined') {
+    var bb = document.getElementById('bootBanner');
+    bb.style.display = 'block';
+    bb.textContent = typeof window.Matter === 'undefined'
+      ? '⚠ Matter 引擎未載入——請確認打開的是組裝後的 pet-physics-test.html（不是 .template.html 模板文件）。'
+      : '⚠ PhysicsHost 未載入——請確認打開的是組裝後的 pet-physics-test.html（不是 .template.html 模板文件）。';
+    return;
+  }
+
+  // =========================================================================
+  // Simulated desktop + pet window (the "OS window" this page moves around)
+  // =========================================================================
+  var AREA = { availLeft: 0, availTop: 0, availWidth: 1000, availHeight: 480 };
+  var desktop = document.getElementById('desktop');
+  var petWindow = document.getElementById('petWindow');
+  var petFace = document.getElementById('pet');
+
+  var simWin = {
+    moves: 0,
+    x: 120, y: 80,
+    getBounds: function () {
+      return Promise.resolve({ x: this.x, y: this.y, width: 200, height: 200 });
+    },
+    move: function (x, y) {
+      this.moves++;
+      // Clamp to the test frame — the pet window can never leave the desktop.
+      this.x = Math.round(Math.min(Math.max(x, 0), AREA.availWidth - 200));
+      this.y = Math.round(Math.min(Math.max(y, 0), AREA.availHeight - 200));
+      petWindow.style.left = this.x + 'px';
+      petWindow.style.top = this.y + 'px';
+      // P3-①: the pet is a static proxy body in the desktop-toy world — keep
+      // it glued on EVERY move. (D3: a push that arrives late leaves the
+      // proxy stuck on a stale coordinate forever.)
+      if (typeof toyWorld !== 'undefined' && toyWorld) {
+        toyWorld.setPetBounds({ x: this.x, y: this.y, width: 200, height: 200 });
+      }
+    }
+  };
+
+  // =========================================================================
+  // Live host (manual play) — real PhysicsHost logic against simWin
+  // =========================================================================
+  var live = new PhysicsHost({
+    win: simWin,
+    Matter: window.Matter,
+    screenOverride: AREA,
+    autoRun: true,
+    onEpisodeStart: function () { petFace.classList.remove('sleeping'); },
+    onSleep: function () { petFace.classList.add('sleeping'); }
+  });
+  live.start();
+
+  // =========================================================================
+  // Drag semantics — verbatim from interaction.mjs (fixed clickPos/clickBounds)
+  // =========================================================================
+  var clickPos = null, clickBounds = null, moveSamples = [];
+
+  petWindow.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    clickPos = { x: e.screenX, y: e.screenY };
+    clickBounds = { x: simWin.x, y: simWin.y };
+    moveSamples = [];
+    petFace.classList.remove('sleeping');
+    live.grab();
+  });
+
+  window.addEventListener('mousemove', function (e) {
+    if (!clickPos) return;
+    var dx = e.screenX - clickPos.x, dy = e.screenY - clickPos.y;
+    simWin.move(clickBounds.x + dx, clickBounds.y + dy);
+    moveSamples.push({ x: e.screenX, y: e.screenY, t: performance.now() });
+    if (moveSamples.length > 8) moveSamples.shift();
+  });
+
+  window.addEventListener('mouseup', function (e) {
+    if (!clickPos) return;
+    clickPos = null; clickBounds = null;
+    moveSamples.push({ x: e.screenX, y: e.screenY, t: performance.now() });
+    live.throwFromDrag(jitterSamples(moveSamples));
+  });
+
+  // Throw randomness: organic ±18% speed and ±8° angle jitter on the release
+  // velocity (applied to the sample trail before PhysicsHost computes it).
+  function jitterSamples(samples) {
+    if (!samples || samples.length < 2) return samples;
+    var out = samples.map(function (s) { return { x: s.x, y: s.y, t: s.t }; });
+    var n = out.length;
+    var a = out[n - 2], b = out[n - 1];
+    var dx = b.x - a.x, dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return out;
+    var ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.28;   // ±8°
+    var len = Math.hypot(dx, dy) * (0.82 + Math.random() * 0.36);  // ±18%
+    out[n - 1] = { x: a.x + Math.cos(ang) * len, y: a.y + Math.sin(ang) * len, t: b.t };
+    return out;
+  }
+
+  // =========================================================================
+  // Random drift — renderer.mjs tween semantics incl. arbiter yields
+  // =========================================================================
+  var driftRaf = 0, driftActive = false;
+
+  function startDrift() {
+    var toX = 40 + Math.random() * (AREA.availWidth - 280);
+    var toY = 40 + Math.random() * (AREA.availHeight - 260);
+    var fromX = simWin.x, fromY = simWin.y, t0 = performance.now();
+    driftActive = true;
+    if (driftRaf) cancelAnimationFrame(driftRaf);
+
+    function step() {
+      if (!driftActive) return;
+      if (clickPos || live.ownsMotion()) {          // yield to drag / physics
+        driftActive = false; driftRaf = 0; return;
+      }
+      var t = Math.min(1, (performance.now() - t0) / 1200);
+      var e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      simWin.move(fromX + (toX - fromX) * e, fromY + (toY - fromY) * e);
+      if (t < 1) { driftRaf = requestAnimationFrame(step); }
+      else { driftActive = false; driftRaf = 0; }
+    }
+    step();
+  }
+
+  // =========================================================================
+  // P3-① Desktop toy world — page-internal twin of the Electron overlay.
+  //
+  // Two design rules come straight from defects found on the real app:
+  //   D3  the pet proxy is PULLED from the pet's current bounds at start and
+  //       on every move — a pushed coordinate that arrives late is stale forever.
+  //   D4  low restitution on the floor/walls and on the toys: with 0.4-0.5 the
+  //       toy behaves like a trampoline, flies off-screen and never settles.
+  //       The pet proxy keeps a high restitution so toys still bounce off it.
+  // =========================================================================
+  var TOY_LIMIT = 8;
+  var TOY_TTL_MS = 20000;
+  var TOY_GLYPHS = ['🍪', '🧁', '🍓', '🍬', '🍙', '🥨'];
+
+  function DesktopToyWorld(opts) {
+    this.M = opts.Matter;
+    this.getArea = opts.getArea;
+    this.getPetBounds = opts.getPetBounds;
+    this.onEmpty = opts.onEmpty || function () {};
+    this.limit = TOY_LIMIT;
+    this.toys = [];
+    this.seq = 0;
+    this.engine = null;
+    this.petProxy = null;
+    this.walls = [];
+    this._emptyNotified = false;
+  }
+
+  DesktopToyWorld.prototype.start = function () {
+    var M = this.M, a = this.getArea();
+    this.engine = M.Engine.create({ enableSleeping: true });
+    this.engine.gravity.y = 1;
+    this.engine.gravity.scale = 0.0012;
+
+    var wall = function (x, y, w, h) {
+      return M.Bodies.rectangle(x, y, w, h, {
+        isStatic: true, friction: 0.6, restitution: 0.05, render: { visible: false }
+      });
+    };
+    var T = 120;
+    this.walls = [
+      wall(a.x + a.width / 2, a.y + a.height + T / 2, a.width + 4 * T, T),
+      wall(a.x - T / 2, a.y + a.height / 2, T, a.height + 4 * T),
+      wall(a.x + a.width + T / 2, a.y + a.height / 2, T, a.height + 4 * T)
+    ];
+    this.petProxy = M.Bodies.rectangle(a.x + a.width / 2, a.y + a.height / 2, 200, 200, {
+      isStatic: true, friction: 0.5, restitution: 0.6, render: { visible: false }
+    });
+    M.Composite.add(this.engine.world, this.walls.concat([this.petProxy]));
+    // D3: initialise the proxy from the pet's CURRENT bounds, not a default.
+    this.setPetBounds(this.getPetBounds());
+    return this;
+  };
+
+  DesktopToyWorld.prototype.setPetBounds = function (b) {
+    if (!this.petProxy || !b) return;
+    this.M.Body.setPosition(this.petProxy, {
+      x: b.x + b.width / 2,
+      y: b.y + b.height / 2
+    });
+  };
+
+  DesktopToyWorld.prototype.spawn = function (glyph) {
+    var M = this.M, a = this.getArea();
+    while (this.toys.length >= this.limit) this.recycle(this.toys[0]);
+    var r = 14 + Math.random() * 8;
+    var body = M.Bodies.circle(a.x + 40 + Math.random() * (a.width - 80), a.y - 30, r, {
+      restitution: 0.15, friction: 0.45, frictionAir: 0.008, density: 0.002,
+      sleepThreshold: 45, render: { visible: false }
+    });
+    M.Body.setVelocity(body, { x: (Math.random() - 0.5) * 4, y: 2 });
+    M.Composite.add(this.engine.world, body);
+    var toy = {
+      id: ++this.seq,
+      body: body,
+      glyph: glyph || TOY_GLYPHS[Math.floor(Math.random() * TOY_GLYPHS.length)],
+      born: Date.now(),
+      el: null
+    };
+    this.toys.push(toy);
+    this._emptyNotified = false;
+    return toy;
+  };
+
+  DesktopToyWorld.prototype.recycle = function (toy) {
+    var idx = this.toys.indexOf(toy);
+    if (idx === -1) return;
+    this.toys.splice(idx, 1);
+    if (this.engine) this.M.Composite.remove(this.engine.world, toy.body);
+    if (toy.el && toy.el.parentNode) toy.el.parentNode.removeChild(toy.el);
+    if (this.toys.length === 0 && !this._emptyNotified) {
+      this._emptyNotified = true;
+      try { this.onEmpty(); } catch (e) { /* noop */ }
+    }
+  };
+
+  DesktopToyWorld.prototype.step = function (dt) {
+    if (!this.engine) return;
+    this.M.Engine.update(this.engine, dt);
+    var now = Date.now();
+    var list = this.toys.slice();
+    for (var i = 0; i < list.length; i++) {
+      if (now - list[i].born > TOY_TTL_MS) this.recycle(list[i]);
+    }
+    for (var j = 0; j < this.toys.length; j++) {
+      var t = this.toys[j];
+      if (!t.el) continue;
+      t.el.style.left = (t.body.position.x - 14) + 'px';
+      t.el.style.top = (t.body.position.y - 14) + 'px';
+      t.el.style.transform = 'rotate(' + t.body.angle + 'rad)';
+    }
+  };
+
+  // Live desktop-toy world (driven by the page's own rAF loop).
+  var toyLayer = document.getElementById('toysLayer');
+  var toyWorld = new DesktopToyWorld({
+    Matter: window.Matter,
+    getArea: function () { return { x: 0, y: 0, width: AREA.availWidth, height: AREA.availHeight }; },
+    getPetBounds: function () { return { x: simWin.x, y: simWin.y, width: 200, height: 200 }; },
+    onEmpty: function () { /* overlay closed — nothing left to draw */ }
+  });
+  toyWorld.start();
+
+  function spawnDesktopToy() {
+    var toy = toyWorld.spawn();
+    var el = document.createElement('div');
+    el.className = 'toy';
+    el.textContent = toy.glyph;
+    toyLayer.appendChild(el);
+    toy.el = el;
+    return toy;
+  }
+
+  var toyRaf = 0, toyLast = performance.now();
+  function toyFrame(now) {
+    var dt = Math.min(64, now - toyLast);
+    toyLast = now;
+    toyWorld.step(dt);
+    toyRaf = requestAnimationFrame(toyFrame);
+  }
+  toyRaf = requestAnimationFrame(toyFrame);
+
+  document.getElementById('btnFeed').addEventListener('click', spawnDesktopToy);
+  document.getElementById('btnClearToys').addEventListener('click', function () {
+    var list = toyWorld.toys.slice();
+    for (var i = 0; i < list.length; i++) toyWorld.recycle(list[i]);
+  });
+
+  // =========================================================================
+  // Stats
+  // =========================================================================
+  setInterval(function () {
+    var s = live.stats();
+    var ph = document.getElementById('stPhase');
+    ph.textContent = s.phase;
+    ph.className = s.phase === 'flight' ? 'flight' : '';
+    document.getElementById('stOwns').textContent = String(live.ownsMotion());
+    document.getElementById('stBodies').textContent = s.bodies;
+    document.getElementById('stPairs').textContent = s.pairs;
+    document.getElementById('stSleep').textContent = s.sleeping;
+    document.getElementById('stMoves').textContent = simWin.moves;
+    document.getElementById('stToys').textContent = String(toyWorld.toys.length);
+    document.getElementById('stOverlay').textContent = toyWorld.toys.length > 0 ? 'open' : 'closed';
+  }, 200);
+
+  // =========================================================================
+  // Automated tests — same assertions as tests/physics_host.test.js
+  // =========================================================================
+  function mockWin(bounds) {
+    return {
+      moves: [], bounds: bounds,
+      getBounds: function () { return Promise.resolve(this.bounds); },
+      move: function (x, y) {
+        this.moves.push({ x: x, y: y });
+        this.bounds = { x: x, y: y, width: this.bounds.width, height: this.bounds.height };
+      }
+    };
+  }
+
+  // throwFromDrag()/start() sync the body through a promise (getBounds), so every
+  // assertion that reads body state or steps the engine has to let one macrotask
+  // pass first — the jest suite does exactly this with `await flush()`.
+  var flush = function () { return new Promise(function (r) { setTimeout(r, 0); }); };
+
+  function runTests() {
+    var rows = [];
+    var add = function (name, ok, detail) {
+      rows.push('<tr><td>' + name + '</td><td class="' + (ok ? 'pass">PASS' : 'fail">FAIL') +
+        '</td><td class="detail">' + detail + '</td></tr>');
+    };
+    // One assertion throwing must not blank the whole table (that is how the
+    // missing await above hid itself: the page showed "尚未執行" and a console error).
+    var guard = async function (name, fn) {
+      try { await fn(); } catch (e) { add(name, false, 'threw: ' + (e && e.message)); }
+    };
+
+    return runAll();
+
+    async function runAll() {
+
+    // T0 — environment & syntax capability report (Firefox diagnosis)
+    var feat = {};
+    try { new Function('return (() => 1)()'); feat.arrow = true; } catch (e0) { feat.arrow = false; }
+    try { new Function('return (async function(){})'); feat.async = true; } catch (e0) { feat.async = false; }
+    try { new Function('return (null ?? 1)'); feat.nullish = true; } catch (e0) { feat.nullish = false; }
+    try { new Function('return (undefined)?.x'); feat.optchain = true; } catch (e0) { feat.optchain = false; }
+    feat.flat = typeof Array.prototype.flat === 'function';
+    var missing = Object.keys(feat).filter(function (k) { return !feat[k]; });
+    add('T0 環境能力檢測（UA + 語法特性）', missing.length === 0,
+        navigator.userAgent + ' | 缺失特性: ' + (missing.length ? missing.join(',') : '無'));
+
+    // T1 — computeThrowVelocity: slow release is a placement
+    var slow = computeThrowVelocity([
+      { x: 100, y: 100, t: 0 }, { x: 102, y: 100, t: 80 }, { x: 104, y: 101, t: 160 }
+    ]);
+    add('computeThrowVelocity：慢速釋放 → null（放置）', slow === null,
+        '實測 ' + JSON.stringify(slow) + ' / 預期 null');
+
+    // T2 — computeThrowVelocity: direction preserved + speed capped
+    var fast = computeThrowVelocity([{ x: 0, y: 0, t: 0 }, { x: 200, y: 0, t: 20 }]);
+    var sp = fast ? Math.hypot(fast.x, fast.y) : -1;
+    add('computeThrowVelocity：方向保持 + 速度封頂 ' + MAX_THROW_SPEED + 'px/step',
+        !!fast && Math.abs(sp - MAX_THROW_SPEED) < 1e-6 && Math.abs(fast.y) < 1e-6,
+        '實測 ' + (fast ? sp.toFixed(3) + 'px/step' : 'null') + ' / 預期 ' + MAX_THROW_SPEED.toFixed(3));
+
+    // T3 — bodyCenterToWindowTopLeft mapping
+    var tl = bodyCenterToWindowTopLeft(300, 250);
+    add('bodyCenterToWindowTopLeft：質心→窗口左上角', tl.x === 200 && tl.y === 150,
+        '實測 (' + tl.x + ',' + tl.y + ') / 預期 (200,150)');
+
+    // T4 — placement release never starts an episode
+    await guard('放置釋放：不進入 episode、零窗口寫入', async function () {
+      var w4 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h4 = new PhysicsHost({ win: w4, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h4.start();
+      h4.throwFromDrag([{ x: 300, y: 250, t: 0 }, { x: 302, y: 250, t: 80 }]);
+      await flush();
+      for (var i4 = 0; i4 < 30; i4++) h4.update(1000 / 60);
+      add('放置釋放：不進入 episode、零窗口寫入',
+          !h4.ownsMotion() && h4.stats().phase === 'idle' && w4.moves.length === 0,
+          'phase=' + h4.stats().phase + ', moves=' + w4.moves.length);
+    });
+
+    // T5 — fast release: arc → floor landing → sleep
+    await guard('快速甩出：拋物線 → 落地 → 入睡', async function () {
+      var w5 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h5 = new PhysicsHost({ win: w5, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h5.start();
+      h5.throwFromDrag([{ x: 300, y: 250, t: 0 }, { x: 330, y: 220, t: 30 }, { x: 360, y: 200, t: 60 }]);
+      await flush();
+      for (var i5 = 0; i5 < 600; i5++) h5.update(1000 / 60);
+      if (!w5.moves.length) {
+        add('快速甩出：拋物線 → 落地 → 入睡', false,
+            '零窗口寫入——episode 沒有起來（flush 後 ownsMotion=' + h5.ownsMotion() + '）');
+        return;
+      }
+      var last = w5.moves[w5.moves.length - 1];
+      var minY = Math.min.apply(null, w5.moves.map(function (m) { return m.y; }));
+      var landed = last.y + 200;
+      add('快速甩出：拋物線 → 落地 → 入睡',
+          h5.stats().phase === 'idle' && h5.body.isSleeping &&
+          landed >= AREA.availHeight - 40 && landed <= AREA.availHeight + 10 &&
+          minY < last.y - 20 && w5.moves.length > 10,
+          '落地底邊=' + landed + 'px（預期 ≈' + AREA.availHeight + '±40），弧線峰=' + minY + 'px，寫入=' + w5.moves.length + ' 次');
+    });
+
+    // T6 — grab() suspends physics instantly
+    await guard('grab() 搶占：立即懸停、零窗口寫入', async function () {
+      var w6 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h6 = new PhysicsHost({ win: w6, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h6.start();
+      h6.throwFromDrag([{ x: 0, y: 0, t: 0 }, { x: 40, y: 0, t: 30 }]);
+      await flush();
+      var flying = h6.ownsMotion();
+      h6.grab();
+      var before = w6.moves.length;
+      for (var j = 0; j < 30; j++) h6.update(1000 / 60);
+      add('grab() 搶占：立即懸停、零窗口寫入',
+          flying && !h6.ownsMotion() && w6.moves.length === before,
+          '抓起前 ownsMotion=' + flying + '，抓起後=' + h6.ownsMotion() +
+          ', 新增寫入=' + (w6.moves.length - before));
+    });
+
+    // T7 — F5 guard: reset drains the pair cache
+    await guard('F5 護欄：reset() 後 pairs 緩存歸零', async function () {
+      var w7 = mockWin({ x: 200, y: 150, width: 200, height: 200 });
+      var h7 = new PhysicsHost({ win: w7, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h7.start();
+      h7.throwFromDrag([{ x: 0, y: 0, t: 0 }, { x: 40, y: 20, t: 30 }]);
+      await flush();
+      for (var k = 0; k < 600; k++) h7.update(1000 / 60);
+      var pairsBefore = h7.engine.pairs.list.length;
+      h7.reset();
+      h7.update(1000 / 60);
+      add('F5 護欄：reset() 後 pairs 緩存歸零',
+          h7.engine.pairs.list.length === 0 &&
+          Object.keys(h7.engine.pairs.table).length === 0 &&
+          h7.engine.world.bodies.length === 5,
+          'reset 前 pairs=' + pairsBefore + '，後=' + h7.engine.pairs.list.length +
+          '，場景剛體=' + h7.engine.world.bodies.length + '（預期 4 牆 + 1 寵物）');
+    });
+
+    // T8 — drag clamp: the pet window can never leave the test frame
+    simWin.move(-50, -50);
+    var clamped1 = { x: simWin.x, y: simWin.y };
+    simWin.move(9999, 9999);
+    var clamped2 = { x: simWin.x, y: simWin.y };
+    simWin.move(120, 80);
+    add('T8 拖拽夾緊：寵物窗口不出測試框',
+        clamped1.x === 0 && clamped1.y === 0 &&
+        clamped2.x === AREA.availWidth - 200 && clamped2.y === AREA.availHeight - 200,
+        '(-50,-50)→(' + clamped1.x + ',' + clamped1.y + ')，(9999,9999)→(' + clamped2.x + ',' + clamped2.y + ')');
+
+    // T9 — throw randomness: speed ±18%, angle ±8°, never identical
+    var base = [{ x: 0, y: 0, t: 0 }, { x: 30, y: 0, t: 30 }];
+    var seen = {};
+    var okJitter = true;
+    for (var q = 0; q < 24; q++) {
+      var js = jitterSamples(base);
+      var ddx = js[1].x - js[0].x, ddy = js[1].y - js[0].y;
+      var speed = Math.hypot(ddx, ddy), ang = Math.abs(Math.atan2(ddy, ddx));
+      if (speed < 30 * 0.82 - 0.01 || speed > 30 * 1.18 + 0.01 || ang > 0.15) okJitter = false;
+      seen[Math.round(speed * 10) + '/' + Math.round(ang * 100)] = true;
+    }
+    add('T9 甩出隨機性：速度 ±18%、角度 ±8°（24 次取樣）',
+        okJitter && Object.keys(seen).length > 3,
+        '去重後 ' + Object.keys(seen).length + ' 種軌跡（預期 > 3），邊界 ' + (okJitter ? '合規' : '越界'));
+
+    // ---------------------------------------------------------------------
+    // P3-① 桌面玩具（desktop toys）—— 與 windows_pet 的 p3_desktop_toys
+    // 測試同構，並加上兩筆實機缺陷的回歸斷言（D3 / D4）。
+    // ---------------------------------------------------------------------
+
+    function makeToyWorld() {
+      var w = new DesktopToyWorld({
+        Matter: window.Matter,
+        getArea: function () { return { x: 0, y: 0, width: AREA.availWidth, height: AREA.availHeight }; },
+        getPetBounds: function () { return { x: 200, y: 100, width: 200, height: 200 }; },
+        onEmpty: function () { w._emptied = true; }
+      });
+      w._emptied = false;
+      w.start();
+      return w;
+    }
+
+    // T10 — a toy falls under gravity
+    await guard('T10 桌面玩具：受重力掉落', async function () {
+      var w = makeToyWorld();
+      var toy = w.spawn('🍪');
+      var y0 = toy.body.position.y;
+      for (var i = 0; i < 10; i++) w.step(16);
+      add('T10 桌面玩具：受重力掉落', toy.body.position.y > y0,
+          '實測 y ' + y0.toFixed(1) + ' → ' + toy.body.position.y.toFixed(1) + '（預期下降）');
+    });
+
+    // T11 — D4 regression: the toy must SETTLE on the floor, not trampoline
+    //      The meaningful metric is the bounce height *after* the first
+    //      impact: with restitution 0.4-0.5 the toy flies hundreds of pixels
+    //      back up (a trampoline), with 0.05 it barely hops.
+    await guard('T11 桌面玩具：停在地板（低回彈，不彈飛）', async function () {
+      var w = makeToyWorld();
+      var toy = w.spawn('🍓');
+      // Park the toy far from the pet proxy (a 200x200 static platform in the
+      // middle of the desktop) — otherwise the toy may legitimately rest ON
+      // the pet instead of reaching the floor.
+      window.Matter.Body.setPosition(toy.body, { x: 120, y: -30 });
+      var floorY = AREA.availHeight;
+      var touched = false, minAfter = 1e9, y = toy.body.position.y;
+      for (var i = 0; i < 600; i++) {
+        w.step(16);
+        y = toy.body.position.y;
+        if (!touched && y > floorY - toy.body.circleRadius - 3) touched = true;
+        if (touched && y < minAfter) minAfter = y;
+      }
+      var bounce = floorY - minAfter;
+      var resting = Math.abs(y - (floorY - toy.body.circleRadius)) < 40;
+      add('T11 桌面玩具：停在地板（低回彈，不彈飛）',
+          touched && bounce < 50 && (toy.body.isSleeping || resting),
+          '觸地後最高點 y=' + minAfter.toFixed(1) + '（反彈高度 ' + bounce.toFixed(1) + 'px，預期 < 50），' +
+          '最終 y=' + y.toFixed(1) + '，休眠=' + toy.body.isSleeping);
+    });
+
+    // T12 — the toy count is capped
+    await guard('T12 桌面玩具：數量上限 8', async function () {
+      var w = makeToyWorld();
+      for (var i = 0; i < 14; i++) w.spawn();
+      add('T12 桌面玩具：數量上限 8', w.toys.length === 8,
+          '實測 ' + w.toys.length + ' / 預期 8');
+    });
+
+    // T13 — the pet proxy follows the pet window (live wiring)
+    await guard('T13 寵物 proxy 黏合寵物窗口', async function () {
+      var keep = { x: simWin.x, y: simWin.y };
+      simWin.move(400, 120);
+      // copy the numbers — Matter mutates body.position in place, so keeping
+      // the object reference would show the position *after* we move back.
+      var px = toyWorld.petProxy.position.x, py = toyWorld.petProxy.position.y;
+      var ok = Math.abs(px - 500) < 2 && Math.abs(py - 220) < 2;
+      simWin.move(keep.x, keep.y);
+      add('T13 寵物 proxy 黏合寵物窗口', ok,
+          '寵物移至 (400,120) → proxy (' + px.toFixed(1) + ',' + py.toFixed(1) + ')，預期 (500,220)');
+    });
+
+    // T14 — a toy bounces off the pet proxy
+    await guard('T14 玩具被寵物 proxy 彈開', async function () {
+      var w = makeToyWorld();
+      w.setPetBounds({ x: 300, y: 200, width: 200, height: 200 });
+      var toy = w.spawn('🥨');
+      // Move the body through Body.setPosition: writing body.position directly
+      // leaves body.bounds stale and Matter's Bounds.overlaps pre-check then
+      // reports "no collision" for visibly overlapping shapes.
+      window.Matter.Body.setPosition(toy.body, { x: 560, y: 300 });
+      window.Matter.Body.setVelocity(toy.body, { x: -8, y: 0 });
+      var bounced = false;
+      for (var i = 0; i < 60; i++) {
+        w.step(16);
+        if (toy.body.velocity.x > 0) { bounced = true; break; }
+      }
+      add('T14 玩具被寵物 proxy 彈開', bounced,
+          '實測 vx=' + toy.body.velocity.x.toFixed(2) + '（預期由負轉正）');
+    });
+
+    // T15 — TTL expiry recycles the toy and closes the overlay
+    await guard('T15 桌面玩具 TTL：到期回收並關閉 overlay', async function () {
+      var w = makeToyWorld();
+      var toy = w.spawn('🍬');
+      toy.born = Date.now() - TOY_TTL_MS - 1;
+      w.step(16);
+      add('T15 桌面玩具 TTL：到期回收並關閉 overlay',
+          w.toys.length === 0 && w._emptied === true &&
+          w.engine.world.bodies.indexOf(toy.body) === -1,
+          '剩餘玩具=' + w.toys.length + '，onEmpty 觸發=' + w._emptied);
+    });
+
+    // T16 — D3 regression: the proxy is initialised from the CURRENT pet bounds
+    await guard('T16 桌面玩具：建立時 proxy 以當下寵物座標初始化', async function () {
+      var w = new DesktopToyWorld({
+        Matter: window.Matter,
+        getArea: function () { return { x: 0, y: 0, width: AREA.availWidth, height: AREA.availHeight }; },
+        getPetBounds: function () { return { x: 600, y: 200, width: 200, height: 200 }; },
+        onEmpty: function () {}
+      });
+      w.start();
+      var p = w.petProxy.position;
+      add('T16 桌面玩具：建立時 proxy 以當下寵物座標初始化',
+          Math.abs(p.x - 700) < 2 && Math.abs(p.y - 300) < 2,
+          '實測 proxy (' + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ') / 預期 (700,300)');
+    });
+
+    document.getElementById('testBody').innerHTML = rows.join('');
+    var passCount = rows.filter(function (r) { return r.indexOf('">PASS') !== -1; }).length;
+    return passCount + '/' + rows.length;
+    }
+  }
+
+  // =========================================================================
+  // Buttons
+  // =========================================================================
+  document.getElementById('btnToss').addEventListener('click', function () {
+    petFace.classList.remove('sleeping');
+    simWin.move(300, 60);
+    live.grab();
+    live.throwFromDrag(jitterSamples([
+      { x: 0, y: 0, t: 0 },
+      { x: 26, y: -18, t: 22 },
+      { x: 52, y: -32, t: 44 }
+    ]));
+  });
+
+  document.getElementById('btnPlace').addEventListener('click', function () {
+    petFace.classList.remove('sleeping');
+    live.grab();
+    simWin.move(560, 40);
+    live.throwFromDrag([{ x: 0, y: 0, t: 0 }, { x: 1, y: 0, t: 90 }]); // slow → placement
+  });
+
+  document.getElementById('btnDrift').addEventListener('click', startDrift);
+
+  document.getElementById('btnReset').addEventListener('click', function () {
+    driftActive = false;
+    petFace.classList.remove('sleeping');
+    live.reset();
+    simWin.move(120, 80);
+  });
+
+  document.getElementById('btnRun').addEventListener('click', async function () {
+    console.log('[auto-test]', await runTests());
+  });
+
+  // Auto-run once on load
+  window.addEventListener('load', function () {
+    setTimeout(async function () { console.log('[auto-test]', await runTests()); }, 100);
+  });
+
+  window.__BOOT.stage = 'ready';
+})();
+</script>
+</body>
+</html>
