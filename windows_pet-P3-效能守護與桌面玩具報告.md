@@ -217,9 +217,22 @@ ERROR backend.config_manager: Corrupted config file ...:
 
 > 修正的驗證方式：先以 `pytest.mark.xfail(strict=True)` 把缺陷釘住（紅燈），套上修補後移除標記、測試轉綠——確認是修補讓測試通過，而不是測試被改鬆。
 
-### 3.12 順手發現的既有失敗（與本次無關）
+### 3.12 「8 個既有失敗」的真相：沒有產品缺陷，是環境用錯
 
-跑完整 Python 套件時發現 `backend/tests/test_screenshot_chat.py` 有 **8 個既有失敗**：`AttributeError: module 'backend' has no attribute 'screenshot'`。已用 `git stash` 隔離驗證（把我的改動收起來後重跑仍是 8/15 失敗）→ 與本次改動無關，是既有的 import 方式問題。windows_pet 的 Python 套件目前是 **257 passed / 8 failed**（jest 側 13 套件 / 171 項全過）。
+跑完整 Python 套件時出現 8 個 `AttributeError: module 'backend' has no attribute 'screenshot'`。先以 `git stash` 隔離驗證（把我的改動收起來仍失敗）→ 與本次改動無關；再追一層才發現真正的原因：
+
+- `backend/screenshot.py` 在模組層級 `import mss`，而 `mss` 只安裝在專案 venv 裡；
+- `backend/screenshot_chat.py` 是方法內延遲 import `screenshot`，所以沒人 import 過它 → `patch("backend.screenshot…")` 自然找不到屬性；
+- 我用來跑 pytest 的「系統 Python」其實是 agent 自己的 venv（`hermes-agent\venv`），PATH 上第一個 python 就是它。
+
+用專案 venv 跑：**257 passed / 0 failed**。也就是說這 8 個失敗從頭到尾都是我的量測環境錯誤，不是產品 bug。
+
+**真正的修正**是讓這個錯誤不可能再發生：
+
+1. 新增 repo 根 `conftest.py` 守門——缺少 `mss/psutil/websockets` 時直接 `pytest.UsageError`，點名出錯的解譯器並給出正確指令（`.\venv\Scripts\python.exe -m pytest`），exit code 4；
+2. 移除 `backend/pyproject.toml` 裡重複的 `[tool.pytest.ini_options]`——它會讓 pytest 把 rootdir 設成 `backend/`，使根 conftest 落在 confcutdir 之外、守門根本不執行。
+
+> 教訓：**「與我的改動無關」不能當成結案。** 一個從未被質疑的量測環境，可以憑空製造出 8 個看起來像產品缺陷的失敗。先問「我用的工具對嗎」，再問「產品對嗎」。
 
 ### 3.7 設定檔 BOM 陷阱（非本專案缺陷，但踩過）
 
