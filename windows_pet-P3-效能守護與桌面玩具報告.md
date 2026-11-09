@@ -174,6 +174,22 @@ node_modules\electron\dist\electron.exe --remote-debugging-port=9222 .
 
 建置腳本的文字門禁（placeholder / `??` / `.flat()` / `export` 殘留）與行為門禁（engine 修復 F1–F6）持續全數通過。
 
+### 3.10 overlay 開關洩漏守門（`npm run check:overlay-churn`）
+
+每次餵食都可能開一個透明 overlay 視窗、每顆玩具消失就關一次——這是最容易累積 renderer 行程與 GPU 資源的地方，原本沒有任何測試。
+新增 `scripts/cdp-overlay-churn-check.mjs`，用 CDP 驅動 12 輪「餵食 → TTL 回收 → 關閉」：
+
+```
+baseline: 4 processes, 325.7 MB working set
+after 12 cycles: 4 processes, 328.1 MB working set
+overlay opened 12x, closed 12x
+  PASS  no renderer processes leaked (4 -> 4)
+  PASS  working-set growth 2.4 MB < 64 MB
+  PASS  every opened overlay was closed again (12/12)
+```
+
+量測方法的兩處修正：Electron 的 `SystemInfo` 不提供 `privateFootprint`（量到 0 等於沒量），改用 OS 層的 working set；另外「把玩具時間戳改老」必須先等玩具真的出現在 overlay 裡，否則會測到初始化競態而不是 TTL。
+
 ### 3.7 設定檔 BOM 陷阱（非本專案缺陷，但踩過）
 
 用 PowerShell 5.1 的 `Set-Content -Encoding utf8` 寫入設定檔會產生 **UTF-8 BOM**，後端 `config_manager` 直接判定 `Corrupted config file` 並**以預設值覆寫整份檔案**（`physics` 區塊被清掉、靜默失效）。正確寫法：
