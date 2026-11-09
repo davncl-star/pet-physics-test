@@ -202,11 +202,24 @@ overlay opened 12x, closed 12x
 
 **#6 config schema 契約**（`electron/tests/config_schema.test.js`）：`settings.html` 在**存檔路徑與匯出路徑**各寫一次 physics 區塊，兩邊必須一致；寫出的鍵必須恰為文件化 schema；renderer 讀的每個鍵都必須被寫出（或明確是「只讀＋程式碼預設」）；每個 schema 鍵都必須真的被讀到（沒有死設定）；每個 physics 表單 id 都必須存在於 HTML。另有行為面斷言：空區塊保持物理與窗口內玩具啟用、`enabled:false` 關閉、`toy_limit` 被夾在 1..24。
 
-**#6b 後端 round-trip**（`tests/integration/test_config_manager.py`）：未知鍵（`physics` 區塊）在 load/save 後必須存活、缺漏鍵由預設補齊、損壞檔退回預設而非拋例外、後端自己寫檔不得帶 BOM。
+**#6b 後端 round-trip**（`backend/tests/test_config_manager.py`，6 項新測試）：未知鍵（`physics` 區塊）在 load/save 後必須存活、缺漏鍵由預設補齊、BOM 必須被容忍、後端寫檔不得帶 BOM、load+save 不得改變任何值。
 
-> 這個測試抓出一個**真實缺陷**：`config_manager.load_config()` 以 `encoding="utf-8"` 讀檔，帶 UTF-8 BOM 的設定檔（Windows 編輯器、PowerShell 5.1 的 `Set-Content -Encoding utf8` 都會加）會讓 `json.load()` 丟出 `Unexpected UTF-8 BOM`，後端記錄「Corrupted config file … Using defaults」並**把使用者整份設定覆寫成預設值**。這正是我在實機開啟物理功能時踩到的那個坑。修法是一行：改用 `encoding="utf-8-sig"`。
->
-> 因為你交代過不要改 windows_pet 的產品程式碼，我沒有動 `backend/config_manager.py`，而是用 `pytest.mark.xfail(strict=True)` 把缺陷釘在測試裡——strict 意味著一旦有人修好，它會變成 XPASS 而失敗，逼著移除標記。
+這個測試抓出一個**真實缺陷**——正是我在實機開啟物理功能時踩的那個坑：
+
+```
+ERROR backend.config_manager: Corrupted config file ...:
+      Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0). Using defaults.
+```
+
+`config_manager.load_config()` 原本以 `encoding="utf-8"` 讀檔，帶 BOM 的設定檔（Windows 編輯器、PowerShell 5.1 的 `Set-Content -Encoding utf8` 都會加）會讓 `json.load()` 丟出例外，後端記錄「Using defaults」並**把使用者整份設定覆寫成預設值**——靜默資料遺失。
+
+**已修補**（一行）：讀取改為 `encoding="utf-8-sig"`（有、無 BOM 都能讀；寫入路徑維持 `utf-8`，不產生 BOM）。BOM 測試由紅轉綠。
+
+> 修正的驗證方式：先以 `pytest.mark.xfail(strict=True)` 把缺陷釘住（紅燈），套上修補後移除標記、測試轉綠——確認是修補讓測試通過，而不是測試被改鬆。
+
+### 3.12 順手發現的既有失敗（與本次無關）
+
+跑完整 Python 套件時發現 `backend/tests/test_screenshot_chat.py` 有 **8 個既有失敗**：`AttributeError: module 'backend' has no attribute 'screenshot'`。已用 `git stash` 隔離驗證（把我的改動收起來後重跑仍是 8/15 失敗）→ 與本次改動無關，是既有的 import 方式問題。windows_pet 的 Python 套件目前是 **257 passed / 8 failed**（jest 側 13 套件 / 171 項全過）。
 
 ### 3.7 設定檔 BOM 陷阱（非本專案缺陷，但踩過）
 
