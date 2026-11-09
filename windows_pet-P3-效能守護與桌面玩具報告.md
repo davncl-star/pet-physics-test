@@ -190,6 +190,24 @@ overlay opened 12x, closed 12x
 
 量測方法的兩處修正：Electron 的 `SystemInfo` 不提供 `privateFootprint`（量到 0 等於沒量），改用 OS 層的 working set；另外「把玩具時間戳改老」必須先等玩具真的出現在 overlay 裡，否則會測到初始化競態而不是 TTL。
 
+### 3.11 契約測試（IPC 通道 & config schema）
+
+**#5 IPC 契約**（`electron/tests/ipc_contract.test.js`）：通道名稱是 context bridge 兩側的字串常數，改一邊不會在編譯期报错，只會在執行期炸。測試機械化斷言：
+
+- 每個 `ipcRenderer.invoke(ch)` → 有 `ipcMain.handle(ch)`
+- 每個 `ipcRenderer.send(ch)` → 有 `ipcMain.on(ch)`
+- 每個 `ipcRenderer.on(ch)` 訂閱 → main 有 `webContents.send(ch)`
+- 兩側數量必須 1:1（實測 37 invoke↔handle、4 send↔on、10 on↔send）
+- 抽取結果的數量下限（避免 regex 失配導致空集合假綠）
+
+**#6 config schema 契約**（`electron/tests/config_schema.test.js`）：`settings.html` 在**存檔路徑與匯出路徑**各寫一次 physics 區塊，兩邊必須一致；寫出的鍵必須恰為文件化 schema；renderer 讀的每個鍵都必須被寫出（或明確是「只讀＋程式碼預設」）；每個 schema 鍵都必須真的被讀到（沒有死設定）；每個 physics 表單 id 都必須存在於 HTML。另有行為面斷言：空區塊保持物理與窗口內玩具啟用、`enabled:false` 關閉、`toy_limit` 被夾在 1..24。
+
+**#6b 後端 round-trip**（`tests/integration/test_config_manager.py`）：未知鍵（`physics` 區塊）在 load/save 後必須存活、缺漏鍵由預設補齊、損壞檔退回預設而非拋例外、後端自己寫檔不得帶 BOM。
+
+> 這個測試抓出一個**真實缺陷**：`config_manager.load_config()` 以 `encoding="utf-8"` 讀檔，帶 UTF-8 BOM 的設定檔（Windows 編輯器、PowerShell 5.1 的 `Set-Content -Encoding utf8` 都會加）會讓 `json.load()` 丟出 `Unexpected UTF-8 BOM`，後端記錄「Corrupted config file … Using defaults」並**把使用者整份設定覆寫成預設值**。這正是我在實機開啟物理功能時踩到的那個坑。修法是一行：改用 `encoding="utf-8-sig"`。
+>
+> 因為你交代過不要改 windows_pet 的產品程式碼，我沒有動 `backend/config_manager.py`，而是用 `pytest.mark.xfail(strict=True)` 把缺陷釘在測試裡——strict 意味著一旦有人修好，它會變成 XPASS 而失敗，逼著移除標記。
+
 ### 3.7 設定檔 BOM 陷阱（非本專案缺陷，但踩過）
 
 用 PowerShell 5.1 的 `Set-Content -Encoding utf8` 寫入設定檔會產生 **UTF-8 BOM**，後端 `config_manager` 直接判定 `Corrupted config file` 並**以預設值覆寫整份檔案**（`physics` 區塊被清掉、靜默失效）。正確寫法：
