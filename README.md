@@ -69,3 +69,12 @@ $s = Get-Content pet-physics-test.html -Raw `
 
 - windows_pet 端對應實作與測試：`electron/renderer/ui/desktop_toys.mjs`、`electron/tests/p3_desktop_toys.test.js`、`electron/scripts/cdp-desktop-toys-check.mjs`
 - Matter.js 分層測試與 engine 修復：`davncl-star/matter-js`（分支 `layered-physics-tests`）
+
+## CI
+
+`.github/workflows/verify.yml`（windows-latest）：
+
+1. 建置單檔頁（文字門禁 + engine 修復行為門禁 F1–F6）
+2. 用預裝的 Edge headless 執行頁內斷言，出現任何 FAIL 即失敗
+
+> `vendor/physics_host.mjs` 是 windows_pet 的 P0 物理模組副本（windows_pet 為私有倉庫，本倉庫需要能獨立建置）。若要改用更新版本，設環境變數 `PET_PHYSICS_HOST` 指向它即可；CI 亦同。

@@ -5,9 +5,13 @@
 #   - pet-physics-test.template.html        page template (placeholders)
 #   - vendor\matter.min.js                 Matter.js engine (vendored copy;
 #                                           falls back to matter-js-test\build\)
-#   - <windows_pet>\renderer\physics_host.mjs  P0 module, embedded VERBATIM
-#     except: leading `export ` stripped and old-browser syntax downleveled
-#     (?? -> == null ternary, .flat() -> concat()) — behaviour-identical.
+#   - vendor\physics_host.mjs              P0 physics module (vendored copy);
+#                                           falls back to the windows_pet checkout
+#     The P0 module is embedded VERBATIM except: leading `export ` stripped
+#     and old-browser syntax downleveled (?? -> == null ternary,
+#     .flat() -> concat()) — behaviour-identical.
+#
+# Override the physics module location with PET_PHYSICS_HOST (used by CI).
 #
 # Usage:  powershell -ExecutionPolicy Bypass -File build-pet-physics-test.ps1
 
@@ -17,8 +21,18 @@ Set-Location $PSScriptRoot
 $TPL    = Join-Path $PSScriptRoot 'pet-physics-test.template.html'
 $LIB_LOCAL = Join-Path $PSScriptRoot 'vendor\matter.min.js'
 $LIB    = if (Test-Path $LIB_LOCAL) { $LIB_LOCAL } else { Join-Path $PSScriptRoot 'matter-js-test\build\matter.min.js' }
-$PHYS  = 'C:\Users\Admin\Documents\openhanako\windows_pet\electron\renderer\physics_host.mjs'
+$PHYS_LOCAL = Join-Path $PSScriptRoot 'vendor\physics_host.mjs'
+$PHYS_DEFAULT = 'C:\Users\Admin\Documents\openhanako\windows_pet\electron\renderer\physics_host.mjs'
+$PHYS  = if ($env:PET_PHYSICS_HOST) { $env:PET_PHYSICS_HOST }
+         elseif (Test-Path $PHYS_LOCAL) { $PHYS_LOCAL }
+         else { $PHYS_DEFAULT }
 $OUTPUT = Join-Path $PSScriptRoot 'pet-physics-test.html'
+
+if (-not (Test-Path $PHYS)) {
+    Write-Host "GATE FAILED: physics_host.mjs not found at $PHYS"
+    Write-Host "  set PET_PHYSICS_HOST=<path> or place a copy in vendor\physics_host.mjs"
+    exit 1
+}
 
 $tpl = Get-Content -Raw -Encoding UTF8 $TPL
 

@@ -1,0 +1,39 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    name: build the page and run its assertions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The page embeds the P0 physics module verbatim. It is vendored under
+      # vendor/ so this repository stays self-contained (windows_pet is
+      # private); set PET_PHYSICS_HOST to point at a fresher copy.
+      - name: build the single-file page (text gate + engine-fix gate)
+        shell: pwsh
+        run: ./build-pet-physics-test.ps1
+
+      - name: in-page assertions (Edge headless)
+        shell: pwsh
+        run: |
+          $edge = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+          if (-not (Test-Path $edge)) { throw "Edge not found on this runner" }
+          $dom = & $edge --headless=new --disable-gpu --dump-dom --virtual-time-budget=10000 `
+            "file:///$($PWD.Path -replace '\\','/')/pet-physics-test.html" 2>$null | Out-String
+          $pass = ([regex]::Matches($dom, 'class="pass">PASS')).Count
+          $fail = ([regex]::Matches($dom, 'class="fail">FAIL')).Count
+          Write-Host "page assertions: $pass passed, $fail failed"
+          if ($fail -gt 0) {
+            foreach ($m in [regex]::Matches($dom, '<tr><td>([^<]+)</td><td class="fail">FAIL</td><td class="detail">([^<]*)</td></tr>')) {
+              Write-Host ("  FAIL " + $m.Groups[1].Value + " | " + $m.Groups[2].Value)
+            }
+            exit 1
+          }
+          if ($pass -lt 17) { Write-Host "expected at least 17 assertions to run"; exit 1 }
