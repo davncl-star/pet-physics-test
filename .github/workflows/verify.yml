@@ -1,4 +1,4 @@
-name: verify
+﻿name: verify
 
 on:
   push:
@@ -36,4 +36,5 @@ jobs:
             }
             exit 1
           }
-          if ($pass -lt 17) { Write-Host "expected at least 17 assertions to run"; exit 1 }
+          if ($pass -lt 20) { Write-Host "expected at least 20 assertions to run"; exit 1 }
+

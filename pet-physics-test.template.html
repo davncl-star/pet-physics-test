@@ -48,6 +48,34 @@
     width: 28px; height: 28px; text-align: center;
     will-change: transform, left, top;
   }
+  /* P2 event expressions: thrown = exertion (sweat), asleep = zzz. */
+  .sweat {
+    position: absolute; left: -6px; top: 4px; font-size: 20px;
+    display: none; pointer-events: none;
+  }
+  .pet.exerting .sweat { display: block; }
+  /* P2 chat bubble: the same damped-oscillator linear() spring curve as
+     windows_pet's chat_bubble.html (Chromium 113+/Electron 33+). */
+  .bubble {
+    position: absolute; left: 235px; top: 40px; max-width: 260px; z-index: 5;
+    padding: 10px 13px; background: #fff; border: 1px solid var(--line);
+    border-radius: 12px; font-size: 12.5px; color: var(--ink); line-height: 1.6;
+    box-shadow: 0 2px 12px rgba(44,42,39,.18);
+    display: none;
+    --bubble-spring: linear(
+      0, 0.0073 2.1%, 0.0294 4.2%, 0.0906 8.4%, 0.1863 12.5%, 0.3098 16.7%,
+      0.4404 20.8%, 0.5874 25%, 0.7273 29.2%, 0.8584 33.3%, 0.9649 37.5%,
+      1.0423 41.7%, 1.0855 45.8%, 1.0925 50%, 1.0705 54.2%, 1.0271 58.3%,
+      0.9755 62.5%, 0.9227 66.7%, 0.8768 70.8%, 0.8445 75%, 0.8291 79.2%,
+      0.8322 83.3%, 0.8496 87.5%, 0.8768 91.7%, 0.9093 95.8%, 0.9447 100%
+    );
+    animation: bubble-in 0.42s var(--bubble-spring) forwards;
+  }
+  .bubble.show { display: block; }
+  @keyframes bubble-in {
+    from { opacity: 0; transform: translateY(-6px) scale(0.94); }
+    to   { opacity: 1; transform: none; }
+  }
   .pet {
     width: 148px; height: 148px; border-radius: 46px;
     background: #f19648; border: 3px solid #d97f35;
@@ -136,6 +164,7 @@
   <div class="desktop" id="desktop">
     <div class="pet-window" id="petWindow" style="left:120px; top:80px;">
       <div class="pet" id="pet">
+        <div class="sweat" id="petSweat">💧</div>
         <div class="eye l"><div class="pupil"></div></div>
         <div class="eye r"><div class="pupil"></div></div>
         <div class="mouth"></div>
@@ -144,9 +173,12 @@
     </div>
     <div class="floor">工作區地板（可用高度 480px，窗口底部貼地即落地）</div>
     <div class="toys-layer" id="toysLayer"></div>
+    <div class="bubble" id="chatBubble">今天也要好好吃饭哦～</div>
   </div>
 
   <div class="row">
+    <button id="btnHop">🦘 彈跳移動（hop）</button>
+    <button id="btnBubble">💬 彈簧氣泡</button>
     <button id="btnFeed">🍪 丟食物到桌面（P3-①）</button>
     <button id="btnClearToys">🧹 清除桌面玩具</button>
     <button id="btnToss">🎾 快速甩出（物理 episode）</button>
@@ -268,13 +300,25 @@ window.__BOOT.stage = 'physics-host-ok';
   // =========================================================================
   // Live host (manual play) — real PhysicsHost logic against simWin
   // =========================================================================
+  var sweatTimer = 0;
   var live = new PhysicsHost({
     win: simWin,
     Matter: window.Matter,
     screenOverride: AREA,
     autoRun: true,
-    onEpisodeStart: function () { petFace.classList.remove('sleeping'); },
-    onSleep: function () { petFace.classList.add('sleeping'); }
+    onEpisodeStart: function () {
+      petFace.classList.remove('sleeping');
+      // P2: being thrown = exertion -> sweat drop.
+      petFace.classList.add('exerting');
+      if (sweatTimer) clearTimeout(sweatTimer);
+      sweatTimer = setTimeout(function () { petFace.classList.remove('exerting'); }, 900);
+    },
+    onSleep: function () { petFace.classList.add('sleeping'); },
+    onWake: function () {
+      // P2: waking up drops the zzz marker.
+      petFace.classList.remove('sleeping');
+      petFace.classList.remove('exerting');
+    }
   });
   live.start();
 
@@ -492,6 +536,25 @@ window.__BOOT.stage = 'physics-host-ok';
   toyRaf = requestAnimationFrame(toyFrame);
 
   document.getElementById('btnFeed').addEventListener('click', spawnDesktopToy);
+
+  // P2: ballistic hop (the physics host owns the window motion).
+  document.getElementById('btnHop').addEventListener('click', function () {
+    petFace.classList.remove('sleeping');
+    live.hopTo(560, 60);
+  });
+
+  // P2: springy chat bubble.
+  var bubbleTimer = 0;
+  function showBubble() {
+    var el = document.getElementById('chatBubble');
+    el.classList.add('show');
+    el.style.animation = 'none';
+    void el.offsetWidth;          // restart the entrance animation
+    el.style.animation = '';
+    if (bubbleTimer) clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(function () { el.classList.remove('show'); }, 2500);
+  }
+  document.getElementById('btnBubble').addEventListener('click', showBubble);
   document.getElementById('btnClearToys').addEventListener('click', function () {
     var list = toyWorld.toys.slice();
     for (var i = 0; i < list.length; i++) toyWorld.recycle(list[i]);
@@ -796,6 +859,64 @@ window.__BOOT.stage = 'physics-host-ok';
       add('T16 桌面玩具：建立時 proxy 以當下寵物座標初始化',
           Math.abs(p.x - 700) < 2 && Math.abs(p.y - 300) < 2,
           '實測 proxy (' + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ') / 預期 (700,300)');
+    });
+
+    // ---------------------------------------------------------------------
+    // P1/P2 — ballistic hop, event expressions, springy bubble
+    // ---------------------------------------------------------------------
+
+    // T17 — hop: a ballistic arc that lands on the target
+    await guard('T17 彈跳移動：hop 走拋物線並抵達目標', async function () {
+      var w17 = mockWin({ x: 200, y: 300, width: 200, height: 200 });
+      var h17 = new PhysicsHost({ win: w17, Matter: window.Matter, screenOverride: AREA, autoRun: false });
+      h17.start();
+      var accepted = h17.hopTo(520, 80);
+      await flush();
+      var ys = [];
+      for (var i = 0; i < 600; i++) {
+        h17.update(1000 / 60);
+        if (w17.moves.length) ys.push(w17.moves[w17.moves.length - 1].y);
+      }
+      var minY = ys.length ? Math.min.apply(null, ys) : 1e9;
+      var last = w17.moves.length ? w17.moves[w17.moves.length - 1] : null;
+      add('T17 彈跳移動：hop 走拋物線並抵達目標',
+          accepted && ys.length > 10 && minY < 300 &&
+          last && Math.abs(last.x - 520) < 40 && Math.abs(last.y - 80) < 60,
+          '受理=' + accepted + ', 寫入=' + ys.length + ' 次, 最高點 y=' +
+          (minY === 1e9 ? 'n/a' : minY.toFixed(0)) + '（起始 300），終點 (' +
+          (last ? last.x + ',' + last.y : 'n/a') + ') / 預期 (520,80)');
+    });
+
+    // T18 — event expressions: thrown -> sweat, asleep -> zzz, wake -> zzz gone
+    await guard('T18 事件表情：拋出→💧、喚醒→💤消失', async function () {
+      var sweat = document.getElementById('petSweat');
+      var zzz = petFace.querySelector('.zzz');
+      document.getElementById('btnToss').click();
+      await flush();
+      var sweatShown = getComputedStyle(sweat).display !== 'none';
+      petFace.classList.add('sleeping');
+      var zzzShown = getComputedStyle(zzz).display !== 'none';
+      live.grab();                       // fires onWake
+      await flush();
+      var zzzHidden = getComputedStyle(zzz).display === 'none';
+      add('T18 事件表情：拋出→💧、喚醒→💤消失', sweatShown && zzzShown && zzzHidden,
+          '💧 顯示=' + sweatShown + ', 💤 顯示=' + zzzShown + ', 喚醒後 💤 隱藏=' + zzzHidden);
+    });
+
+    // T19 — the bubble uses the damped-oscillator linear() spring curve
+    await guard('T19 氣泡彈簧：顯示、套用 linear() 彈簧曲線', async function () {
+      var el = document.getElementById('chatBubble');
+      document.getElementById('btnBubble').click();
+      await flush();
+      var shown = el.classList.contains('show');
+      var anim = getComputedStyle(el).animationName;
+      var curve = getComputedStyle(el).getPropertyValue('--bubble-spring');
+      var hasLinear = /linear\(/.test(curve);
+      var hasOvershoot = /1\.09/.test(curve);   // the overshoot stop of the curve
+      add('T19 氣泡彈簧：顯示、套用 linear() 彈簧曲線',
+          shown && anim.indexOf('bubble-in') !== -1 && hasLinear && hasOvershoot,
+          'show=' + shown + ', animation=' + anim + ', 含 linear()=' + hasLinear +
+          ', 含過衝停點=' + hasOvershoot);
     });
 
     document.getElementById('testBody').innerHTML = rows.join('');

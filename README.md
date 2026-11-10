@@ -1,80 +1,81 @@
-# pet-physics-test — 桌面寵物理獨立驗證頁
+﻿# pet-physics-test â€” æ¡Œé¢å¯µç‰©ç†ç¨ç«‹é©—è­‰é 
 
-單檔、零依賴的獨立測試程序：不啟動 Electron、不依賴 windows_pet 就能驗證桌面寵物的物理語義。
-直接用瀏覽器開啟 `pet-physics-test.html` 即可（140KB，內嵌 Matter.js 與 P0 `physics_host.mjs`）。
+å–®æª”ã€é›¶ä¾è³´çš„ç¨ç«‹æ¸¬è©¦ç¨‹åºï¼šä¸å•Ÿå‹• Electronã€ä¸ä¾è³´ windows_pet å°±èƒ½é©—è­‰æ¡Œé¢å¯µç‰©çš„ç‰©ç†èªžç¾©ã€‚
+ç›´æŽ¥ç”¨ç€è¦½å™¨é–‹å•Ÿ `pet-physics-test.html` å³å¯ï¼ˆ140KBï¼Œå…§åµŒ Matter.js èˆ‡ P0 `physics_host.mjs`ï¼‰ã€‚
 
-## 覆蓋範圍
+## è¦†è“‹ç¯„åœ
 
-| 區塊 | 內容 |
+| å€å¡Š | å…§å®¹ |
 |---|---|
-| P0 拋擲 | 慢速釋放＝放置、快速甩出＝物理 episode（拋物線 → 落地 → 入睡）、grab 搶占、F5 reset 護欄、拖拽夾緊、甩出隨機性 |
-| P3-① 桌面玩具 | 桌面座標的玩具世界、寵物以 static proxy 參與碰撞、玩具上限 8、TTL 20 秒、低回彈（會停下來） |
+| P0 æ‹‹æ“² | æ…¢é€Ÿé‡‹æ”¾ï¼æ”¾ç½®ã€å¿«é€Ÿç”©å‡ºï¼ç‰©ç† episodeï¼ˆæ‹‹ç‰©ç·š â†’ è½åœ° â†’ å…¥ç¡ï¼‰ã€grab æ¶å ã€F5 reset è­·æ¬„ã€æ‹–æ‹½å¤¾ç·Šã€ç”©å‡ºéš¨æ©Ÿæ€§ |
+| P3-â‘  æ¡Œé¢çŽ©å…· | æ¡Œé¢åº§æ¨™çš„çŽ©å…·ä¸–ç•Œã€å¯µç‰©ä»¥ static proxy åƒèˆ‡ç¢°æ’žã€çŽ©å…·ä¸Šé™ 8ã€TTL 20 ç§’ã€ä½Žå›žå½ˆï¼ˆæœƒåœä¸‹ä¾†ï¼‰ |
 
-頁內自動測試共 **17 項**，載入時自動執行並在表格中列出結果。
+é å…§è‡ªå‹•æ¸¬è©¦å…± **17 é …**ï¼Œè¼‰å…¥æ™‚è‡ªå‹•åŸ·è¡Œä¸¦åœ¨è¡¨æ ¼ä¸­åˆ—å‡ºçµæžœã€‚
 
-## 兩項實機缺陷的回歸斷言
+## å…©é …å¯¦æ©Ÿç¼ºé™·çš„å›žæ­¸æ–·è¨€
 
-- **T11（低回彈）**：量「觸地後的反彈高度」< 50px。缺陷值（牆壁 0.4 / 玩具 0.5）會讓玩具像彈床一樣飛出畫面，反彈高度 ~84px → 斷言轉紅。
-- **T16（初始化競態）**：世界建立時寵物 proxy 必須以「當下」寵物座標初始化。推送式更新若晚到，proxy 會永久停在過期座標，玩具再也不會被寵物彈開。
+- **T11ï¼ˆä½Žå›žå½ˆï¼‰**ï¼šé‡ã€Œè§¸åœ°å¾Œçš„åå½ˆé«˜åº¦ã€< 50pxã€‚ç¼ºé™·å€¼ï¼ˆç‰†å£ 0.4 / çŽ©å…· 0.5ï¼‰æœƒè®“çŽ©å…·åƒå½ˆåºŠä¸€æ¨£é£›å‡ºç•«é¢ï¼Œåå½ˆé«˜åº¦ ~84px â†’ æ–·è¨€è½‰ç´…ã€‚
+- **T16ï¼ˆåˆå§‹åŒ–ç«¶æ…‹ï¼‰**ï¼šä¸–ç•Œå»ºç«‹æ™‚å¯µç‰© proxy å¿…é ˆä»¥ã€Œç•¶ä¸‹ã€å¯µç‰©åº§æ¨™åˆå§‹åŒ–ã€‚æŽ¨é€å¼æ›´æ–°è‹¥æ™šåˆ°ï¼Œproxy æœƒæ°¸ä¹…åœåœ¨éŽæœŸåº§æ¨™ï¼ŒçŽ©å…·å†ä¹Ÿä¸æœƒè¢«å¯µç‰©å½ˆé–‹ã€‚
 
-## 建置
+## å»ºç½®
 
 ```powershell
 .\build-pet-physics-test.ps1
 ```
 
-腳本會把 `pet-physics-test.template.html` 與兩個來源組裝成單檔，並跑兩道門禁：
+è…³æœ¬æœƒæŠŠ `pet-physics-test.template.html` èˆ‡å…©å€‹ä¾†æºçµ„è£æˆå–®æª”ï¼Œä¸¦è·‘å…©é“é–€ç¦ï¼š
 
-1. **文字門禁** — 不得殘留 `/*__MATTER_JS__*/`、`??`（基線 1，是 Matter 自己的 feature probe）、`.flat()`、`export `。
-2. **行為門禁**（`probe_bundle_fixcheck.js`）— 直接跑組裝後的 bundle，驗證 engine 修復 F1–F6 都在。
+1. **æ–‡å­—é–€ç¦** â€” ä¸å¾—æ®˜ç•™ `/*__MATTER_JS__*/`ã€`??`ï¼ˆåŸºç·š 1ï¼Œæ˜¯ Matter è‡ªå·±çš„ feature probeï¼‰ã€`.flat()`ã€`export `ã€‚
+2. **è¡Œç‚ºé–€ç¦**ï¼ˆ`probe_bundle_fixcheck.js`ï¼‰â€” ç›´æŽ¥è·‘çµ„è£å¾Œçš„ bundleï¼Œé©—è­‰ engine ä¿®å¾© F1â€“F6 éƒ½åœ¨ã€‚
 
-### 輸入來源
+### è¼¸å…¥ä¾†æº
 
-| 來源 | 位置 |
+| ä¾†æº | ä½ç½® |
 |---|---|
-| Matter.js | `vendor/matter.min.js`（無此檔時退回 `matter-js-test\build\matter.min.js`） |
-| P0 物理模組 | `C:\Users\Admin\Documents\openhanako\windows_pet\electron\renderer\physics_host.mjs`（逐字嵌入，僅降級舊瀏覽器語法） |
+| Matter.js | `vendor/matter.min.js`ï¼ˆç„¡æ­¤æª”æ™‚é€€å›ž `matter-js-test\build\matter.min.js`ï¼‰ |
+| P0 ç‰©ç†æ¨¡çµ„ | `C:\Users\Admin\Documents\openhanako\windows_pet\electron\renderer\physics_host.mjs`ï¼ˆé€å­—åµŒå…¥ï¼Œåƒ…é™ç´šèˆŠç€è¦½å™¨èªžæ³•ï¼‰ |
 
-`physics_host.mjs` 若要獨立於 windows_pet，可自行放到 `vendor\physics_host.mjs` 並修改腳本中的 `$PHYS`。
+`physics_host.mjs` è‹¥è¦ç¨ç«‹æ–¼ windows_petï¼Œå¯è‡ªè¡Œæ”¾åˆ° `vendor\physics_host.mjs` ä¸¦ä¿®æ”¹è…³æœ¬ä¸­çš„ `$PHYS`ã€‚
 
-## 驗證
+## é©—è­‰
 
 ```powershell
-# 頁內 17 項 + fixes-gate 6/6
+# é å…§ 17 é … + fixes-gate 6/6
 .\build-pet-physics-test.ps1
 ```
 
-瀏覽器驗證（Edge headless）：
+ç€è¦½å™¨é©—è­‰ï¼ˆEdge headlessï¼‰ï¼š
 
 ```powershell
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu `
   --dump-dom --virtual-time-budget=10000 "file:///$PWD/pet-physics-test.html"
 ```
 
-表格中 `class="pass"` / `class="fail"` 的列數即為結果。
+è¡¨æ ¼ä¸­ `class="pass"` / `class="fail"` çš„åˆ—æ•¸å³ç‚ºçµæžœã€‚
 
-## 守門必須先證明抓得到缺陷
+## å®ˆé–€å¿…é ˆå…ˆè­‰æ˜ŽæŠ“å¾—åˆ°ç¼ºé™·
 
-一個從沒紅過的斷言不等於守門：改壞參數重跑，確認對應斷言轉紅後，才信任綠燈。
+ä¸€å€‹å¾žæ²’ç´…éŽçš„æ–·è¨€ä¸ç­‰æ–¼å®ˆé–€ï¼šæ”¹å£žåƒæ•¸é‡è·‘ï¼Œç¢ºèªå°æ‡‰æ–·è¨€è½‰ç´…å¾Œï¼Œæ‰ä¿¡ä»»ç¶ ç‡ˆã€‚
 
 ```powershell
-# 注入 D4 缺陷值 → 預期 T11 轉 FAIL（16/17）
+# æ³¨å…¥ D4 ç¼ºé™·å€¼ â†’ é æœŸ T11 è½‰ FAILï¼ˆ16/17ï¼‰
 $s = Get-Content pet-physics-test.html -Raw `
   -replace 'restitution: 0\.05','restitution: 0.4' `
   -replace 'restitution: 0\.15','restitution: 0.5'
 [System.IO.File]::WriteAllText("$PWD\probe.html", $s, (New-Object System.Text.UTF8Encoding($false)))
 ```
 
-## 相關
+## ç›¸é—œ
 
-- windows_pet 端對應實作與測試：`electron/renderer/ui/desktop_toys.mjs`、`electron/tests/p3_desktop_toys.test.js`、`electron/scripts/cdp-desktop-toys-check.mjs`
-- Matter.js 分層測試與 engine 修復：`davncl-star/matter-js`（分支 `layered-physics-tests`）
+- windows_pet ç«¯å°æ‡‰å¯¦ä½œèˆ‡æ¸¬è©¦ï¼š`electron/renderer/ui/desktop_toys.mjs`ã€`electron/tests/p3_desktop_toys.test.js`ã€`electron/scripts/cdp-desktop-toys-check.mjs`
+- Matter.js åˆ†å±¤æ¸¬è©¦èˆ‡ engine ä¿®å¾©ï¼š`davncl-star/matter-js`ï¼ˆåˆ†æ”¯ `layered-physics-tests`ï¼‰
 
 ## CI
 
-`.github/workflows/verify.yml`（windows-latest）：
+`.github/workflows/verify.yml`ï¼ˆwindows-latestï¼‰ï¼š
 
-1. 建置單檔頁（文字門禁 + engine 修復行為門禁 F1–F6）
-2. 用預裝的 Edge headless 執行頁內斷言，出現任何 FAIL 即失敗
+1. å»ºç½®å–®æª”é ï¼ˆæ–‡å­—é–€ç¦ + engine ä¿®å¾©è¡Œç‚ºé–€ç¦ F1â€“F6ï¼‰
+2. ç”¨é è£çš„ Edge headless åŸ·è¡Œé å…§æ–·è¨€ï¼Œå‡ºç¾ä»»ä½• FAIL å³å¤±æ•—
 
-> `vendor/physics_host.mjs` 是 windows_pet 的 P0 物理模組副本（windows_pet 為私有倉庫，本倉庫需要能獨立建置）。若要改用更新版本，設環境變數 `PET_PHYSICS_HOST` 指向它即可；CI 亦同。
+> `vendor/physics_host.mjs` æ˜¯ windows_pet çš„ P0 ç‰©ç†æ¨¡çµ„å‰¯æœ¬ï¼ˆwindows_pet ç‚ºç§æœ‰å€‰åº«ï¼Œæœ¬å€‰åº«éœ€è¦èƒ½ç¨ç«‹å»ºç½®ï¼‰ã€‚è‹¥è¦æ”¹ç”¨æ›´æ–°ç‰ˆæœ¬ï¼Œè¨­ç’°å¢ƒè®Šæ•¸ `PET_PHYSICS_HOST` æŒ‡å‘å®ƒå³å¯ï¼›CI äº¦åŒã€‚
+
