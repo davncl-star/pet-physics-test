@@ -234,6 +234,22 @@ ERROR backend.config_manager: Corrupted config file ...:
 
 > 教訓：**「與我的改動無關」不能當成結案。** 一個從未被質疑的量測環境，可以憑空製造出 8 個看起來像產品缺陷的失敗。先問「我用的工具對嗎」，再問「產品對嗎」。
 
+### 3.13 三層契約與 CI
+
+**A-1 後端 method 名稱契約**（`electron/tests/backend_method_contract.test.js`）：Electron 端以字串呼叫 Python IPC method（`get_config`、`update_config`、`llm_chat_stream`…），後端以 `register_handler("x", …)`／`_handlers["x"] = …`／`for _method in (…)` 佔位迴圈註冊——兩邊沒有任何機制綁在一起，改名只在執行期炸。測試同時涵蓋 `client.notify('feed_pet', …)`（JSON-RPC notification 與 invoke 一樣無聲），抽取到的 method 數與註冊數分別有下限，避免「空集合假綠」。
+
+**A-2 CI**：`windows_pet` 之前**完全沒有 CI**（171 項 jest、257 項 pytest、soak 守門全靠人工）。新增 `.github/workflows/tests.yml`（jest / pytest / 2 分鐘 soak 三個 job），並把 `mss>=9.0` 補進 `backend/requirements.txt`（它只在 pyproject 裡，依 requirements 安裝會得到一個連 `backend/screenshot.py` 都匯入不了的後端）。
+
+**A-3 獨立頁涵蓋 P1/P2**：`pet-physics-test` 現在不再只驗 P0 + P3-①，新增：
+
+| 斷言 | 內容 |
+|---|---|
+| T17 | 彈跳 hop：離地、拋物線、抵達目標（最高點與終點都斷言） |
+| T18 | 事件表情：拋出→💧 顯示、入睡→💤 顯示、喚醒→💤 隱藏（以 computed style 斷言） |
+| T19 | 彈簧氣泡：顯示、`animation: bubble-in`、曲線含 `linear()` 與過衝停點 |
+
+頁內斷言 **20/20 全過**，CI 門檻同步提高。
+
 ### 3.7 設定檔 BOM 陷阱（非本專案缺陷，但踩過）
 
 用 PowerShell 5.1 的 `Set-Content -Encoding utf8` 寫入設定檔會產生 **UTF-8 BOM**，後端 `config_manager` 直接判定 `Corrupted config file` 並**以預設值覆寫整份檔案**（`physics` 區塊被清掉、靜默失效）。正確寫法：
